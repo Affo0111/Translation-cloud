@@ -567,12 +567,26 @@ def _when_ok(when, norm):
     return True
 
 
+def _groups_by_name(attr, name):
+    """按字段名查属性组：先精确匹配，再大小写不敏感（casefold）回退。
+
+    J 列字段名大小写常与属性表 name 不一致（如 J=Pencil-skirt vs 表=Pencil-Skirt），
+    精确匹配失配会静默丢字段；故加 casefold 回退，兼容大小写差异。
+    """
+    groups = [g for g in (attr.get("groups", []) or []) if g["name"] == name]
+    if groups:
+        return groups
+    fold = str(name).casefold()
+    return [g for g in (attr.get("groups", []) or [])
+            if str(g["name"]).casefold() == fold]
+
+
 def _resolve_gid_by_template(attr, name, active_templates):
     """按活跃模板查字段的 gid：性别模板（非 public）优先，public 补充，最后兜底第一个。
 
     active_templates：集合，如 {"Woman", "public"}。模板字段值来自 J 列（rule.template_field）。
     """
-    groups = [g for g in (attr.get("groups", []) or []) if g["name"] == name]
+    groups = _groups_by_name(attr, name)
     if not groups:
         return None
     # 性别模板优先
@@ -660,9 +674,11 @@ def generate_callie_v2(j_text, rule, attr=None, collect_unmatched=False):
 
     # 属性表 name->gid 映射（用于「隐式字段映射」：D 未显式列出的 J 字段自动查表补 ID）
     attr_by_name = {}
+    attr_by_name_fold = {}
     if attr is not None:
         for g in attr.get("groups", []):
             attr_by_name.setdefault(g["name"], str(g["gid"]))
+            attr_by_name_fold.setdefault(str(g["name"]).casefold(), str(g["gid"]))
 
     # conditional_routing 的目标字段必须产出 AZ 行（dynamic 路由），即使 D 未显式列出 [字段]
     field_mapping_all = list(rule.get("field_mapping", []) or [])
@@ -826,12 +842,17 @@ def generate_callie_v2(j_text, rule, attr=None, collect_unmatched=False):
                 gid = _resolve_gid_by_template(attr, key, active_templates)
             else:
                 gid = attr_by_name.get(key)
+                if gid is None:
+                    gid = attr_by_name_fold.get(str(key).casefold())
             if gid is None:
                 continue
             if str(gid) in fixed_line_gids:
                 continue  # gid 已被固定行占用，不隐式输出（避免冗余/重复）
             val = norm.get(key, "")
-            lines.append(f"{gid}|{key}:|{val}")
+            # label 用属性表规范字段名（而非 J 键），避免大小写不一致污染下游（如 Pencil-skirt→Pencil-Skirt）
+            _grp = _groups_by_name(attr, key)
+            _label = _grp[0]["name"] if _grp else key
+            lines.append(f"{gid}|{_label}:|{val}")
             emitted.add(key)
 
     # 已写入 lines 的固定行 / 条件固定行 / 隐式映射行：若其 label 对应 J 中的某字段，
