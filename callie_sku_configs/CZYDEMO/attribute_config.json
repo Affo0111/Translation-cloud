@@ -1,0 +1,306 @@
+{
+  "groups": [
+    {
+      "name": "Bag Color",
+      "gid": 1,
+      "opts": [
+        "Green"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Name",
+      "gid": 197,
+      "opts": [
+        "Ms. Jessica"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Character",
+      "gid": 100,
+      "opts": [
+        "Female",
+        "Male"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Age",
+      "gid": 119,
+      "opts": [
+        "Young"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Facial Expression",
+      "gid": 120,
+      "opts": [
+        "Open Eyes"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Skin Tone",
+      "gid": 122,
+      "opts": [
+        "Skin 2"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Eyes Color",
+      "gid": 121,
+      "opts": [
+        "Eyes color 6"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Glasses",
+      "gid": 101,
+      "opts": [
+        "5"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Hair Color",
+      "gid": 103,
+      "opts": [
+        "Dark Brown",
+        "Black",
+        "Blonde"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Hair Style - Black",
+      "gid": 104,
+      "opts": [],
+      "tmpl": ""
+    },
+    {
+      "name": "Hair Style - Dark Brown",
+      "gid": 105,
+      "opts": [],
+      "tmpl": ""
+    },
+    {
+      "name": "Hair Style - Blonde",
+      "gid": 108,
+      "opts": [],
+      "tmpl": ""
+    },
+    {
+      "name": "Suit",
+      "gid": 118,
+      "opts": [
+        "Suit 4"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "T-shirt",
+      "gid": 116,
+      "opts": [
+        "T-shirt 4"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Jeans",
+      "gid": 117,
+      "opts": [
+        "Jeans 8"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Socks",
+      "gid": 115,
+      "opts": [
+        "Socks 4"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Shoes",
+      "gid": 114,
+      "opts": [
+        "No",
+        "YES"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Book",
+      "gid": 102,
+      "opts": [
+        "Book 10"
+      ],
+      "tmpl": ""
+    },
+    {
+      "name": "Birth Flower",
+      "gid": 196,
+      "opts": [
+        "May-Lily of the Valley"
+      ],
+      "tmpl": ""
+    }
+  ],
+  "groups_by_name": {
+    "Bag Color": {
+      "name": "Bag Color",
+      "gid": 1,
+      "opts": [
+        "Green"
+      ],
+      "tmpl": ""
+    },
+    "Name": {
+      "name": "Name",
+      "gid": 197,
+      "opts": [
+        "Ms. Jessica"
+      ],
+      "tmpl": ""
+    },
+    "Character": {
+      "name": "Character",
+      "gid": 100,
+      "opts": [
+        "Female",
+        "Male"
+      ],
+      "tmpl": ""
+    },
+    "Age": {
+      "name": "Age",
+      "gid": 119,
+      "opts": [
+        "Young"
+      ],
+      "tmpl": ""
+    },
+    "Facial Expression": {
+      "name": "Facial Expression",
+      "gid": 120,
+      "opts": [
+        "Open Eyes"
+      ],
+      "tmpl": ""
+    },
+    "Skin Tone": {
+      "name": "Skin Tone",
+      "gid": 122,
+      "opts": [
+        "Skin 2"
+      ],
+      "tmpl": ""
+    },
+    "Eyes Color": {
+      "name": "Eyes Color",
+      "gid": 121,
+      "opts": [
+        "Eyes color 6"
+      ],
+      "tmpl": ""
+    },
+    "Glasses": {
+      "name": "Glasses",
+      "gid": 101,
+      "opts": [
+        "5"
+      ],
+      "tmpl": ""
+    },
+    "Hair Color": {
+      "name": "Hair Color",
+      "gid": 103,
+      "opts": [
+        "Dark Brown",
+        "Black",
+        "Blonde"
+      ],
+      "tmpl": ""
+    },
+    "Hair Style - Black": {
+      "name": "Hair Style - Black",
+      "gid": 104,
+      "opts": [],
+      "tmpl": ""
+    },
+    "Hair Style - Dark Brown": {
+      "name": "Hair Style - Dark Brown",
+      "gid": 105,
+      "opts": [],
+      "tmpl": ""
+    },
+    "Hair Style - Blonde": {
+      "name": "Hair Style - Blonde",
+      "gid": 108,
+      "opts": [],
+      "tmpl": ""
+    },
+    "Suit": {
+      "name": "Suit",
+      "gid": 118,
+      "opts": [
+        "Suit 4"
+      ],
+      "tmpl": ""
+    },
+    "T-shirt": {
+      "name": "T-shirt",
+      "gid": 116,
+      "opts": [
+        "T-shirt 4"
+      ],
+      "tmpl": ""
+    },
+    "Jeans": {
+      "name": "Jeans",
+      "gid": 117,
+      "opts": [
+        "Jeans 8"
+      ],
+      "tmpl": ""
+    },
+    "Socks": {
+      "name": "Socks",
+      "gid": 115,
+      "opts": [
+        "Socks 4"
+      ],
+      "tmpl": ""
+    },
+    "Shoes": {
+      "name": "Shoes",
+      "gid": 114,
+      "opts": [
+        "No",
+        "YES"
+      ],
+      "tmpl": ""
+    },
+    "Book": {
+      "name": "Book",
+      "gid": 102,
+      "opts": [
+        "Book 10"
+      ],
+      "tmpl": ""
+    },
+    "Birth Flower": {
+      "name": "Birth Flower",
+      "gid": 196,
+      "opts": [
+        "May-Lily of the Valley"
+      ],
+      "tmpl": ""
+    }
+  }
+}

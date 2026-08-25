@@ -1,0 +1,23 @@
+# Streamlit / Python
+__pycache__/
+*.py[cod]
+*.log
+*.bak
+*.tmp
+.DS_Store
+.env
+.venv/
+
+# 运行时生成的本地数据库（各环境独立，不共享）
+template_database.json
+
+# 测试文件（云端部署不需要）
+test_*.py
+
+# 调试/临时文件
+.deepseek/
+_analyze.py
+_verify_fix.py
+_test_*.py
+_cols.json
+_test_*.xlsx
