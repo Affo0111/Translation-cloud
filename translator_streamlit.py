@@ -787,32 +787,6 @@ with col4, _step_card("步骤4：错误报告"):
                     "错误原因": st.column_config.TextColumn("错误原因", width="large"),
                 })
 
-# ── 列4：错误报告 ────────────────────────────────────────────────
-with col4, _step_card("步骤4：错误报告"):
-
-    pe = st.session_state.parse_errors_list
-    ee = st.session_state.exec_errors_list
-    if not pe and not ee:
-        if st.session_state.processing_done:
-            st.success("🎉 无错误")
-        else:
-            st.info("等待执行翻译")
-    else:
-        all_errs = pe + ee
-        e_df = pd.DataFrame(all_errs)
-        st.warning(f"**{len(e_df)} 条错误**（解析{len(pe)} + 执行{len(ee)}）")
-        with st.expander("📋 展开详情", expanded=False):
-            st.dataframe(e_df, use_container_width=True, hide_index=True,
-                column_config={
-                    "来源": st.column_config.TextColumn("来源", width="small"),
-                    "SKU": st.column_config.TextColumn("SKU", width="medium"),
-                    "Excel行号": st.column_config.NumberColumn("行号", width="small"),
-                    "问题规则": st.column_config.TextColumn("问题规则", width="large"),
-                    "错误类型": st.column_config.TextColumn("错误类型", width="medium"),
-                    "错误原因": st.column_config.TextColumn("错误原因", width="large"),
-                })
-
-
 # ── A 系统规则草稿生成（独立面板，不依赖步骤一）──
 with st.expander("规则草稿生成"):
     import translator as tr
@@ -831,7 +805,7 @@ with st.expander("规则草稿生成"):
             unsafe_allow_html=True,
         )
         _b = st.text_area("翻译前定制项", value=st.session_state.get("gen_a_before", ""),
-                          key="gen_a_before", height=120, label_visibility="collapsed",
+                          key="gen_a_before", label_visibility="collapsed",
                           placeholder="（J列样例）")
 
     with _c2:
@@ -841,40 +815,24 @@ with st.expander("规则草稿生成"):
             unsafe_allow_html=True,
         )
         _a = st.text_area("翻译后定制项", value=st.session_state.get("gen_a_after", ""),
-                          key="gen_a_after", height=120, label_visibility="collapsed",
+                          key="gen_a_after", label_visibility="collapsed",
                           placeholder="（AZ列样例）")
 
     with _c3:
-        _hleft, _hright = st.columns([5, 1])
-        with _hleft:
-            st.markdown(
-                f"<div style='height:{_TITLE_H}px;display:flex;align-items:center;'>"
-                f"<b>⚙️ 规则草稿生成</b></div>",
-                unsafe_allow_html=True,
-            )
-        with _hright:
-            _fb = json.dumps(st.session_state.get("generator_rules", ""))
-            _copy_html = (
-                "<script>"
-                "var _fb=" + _fb + ";"
-                "function copyDraft(){"
-                "var ta=window.parent.document.querySelector('textarea[aria-label=\"翻译模板草稿\"]');"
-                "var txt=ta?ta.value:_fb;"
-                "if(txt===undefined||txt===null)txt=_fb;"
-                "navigator.clipboard.writeText(txt);"
-                "var b=document.getElementById('copyDraftBtn');"
-                "if(b){b.textContent='✅';setTimeout(function(){b.textContent='📋';},1500);}"
-                "}"
-                "</script>"
-                "<button id='copyDraftBtn' onclick='copyDraft()' title='复制草稿' "
-                "style='float:right;border:none;background:transparent;font-size:20px;"
-                "cursor:pointer;line-height:1;padding:2px 6px;border-radius:6px;' "
-                "onmouseover='this.style.background=\"#e2e8f0\"' "
-                "onmouseout='this.style.background=\"transparent\"'>📋</button>"
-            )
-            components.html(_copy_html, height=_TITLE_H)
+        _fb = json.dumps(st.session_state.get("generator_rules", ""))
+        # 标题 + 悬浮复制按钮；按钮事件在下方 components.html 中绑定，不占额外高度
+        st.markdown(
+            f"<div style='height:{_TITLE_H}px;display:flex;align-items:center;position:relative;'>"
+            f"<b>⚙️ 规则草稿生成</b>"
+            f"<button id='copyDraftBtn' type='button' title='复制草稿' "
+            f"style='position:absolute;right:0;top:50%;transform:translateY(-50%);border:none;background:transparent;font-size:18px;cursor:pointer;padding:2px 6px;border-radius:6px;' "
+            f"onmouseover='this.style.background=\"#e2e8f0\"' "
+            f"onmouseout='this.style.background=\"transparent\"'>📋</button>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
         _draft_val = st.text_area("翻译模板草稿", value=st.session_state.get("generator_rules", ""),
-                                  key="gen_a_rules", height=120, label_visibility="collapsed",
+                                  key="gen_a_rules", label_visibility="collapsed",
                                   placeholder="（生成后显示规则草稿）")
 
     # 生成 / 校验按钮并排
@@ -914,15 +872,28 @@ with st.expander("规则草稿生成"):
                 except Exception as _e:
                     st.error(f"编译/校验失败：{_e}")
 
-    # 三个输入框高度自适应（随内容增长），复制按钮直接读草稿框实时内容
+    # 三个输入框高度自适应（随内容增长），并绑定复制按钮事件
     _auto_resize_html = (
         "<script>"
+        "var _fb=" + _fb + ";"
         "function _ar(ta){ta.style.height='auto';ta.style.height=Math.max(ta.scrollHeight,100)+'px';}"
+        "function _bindCopy(){"
+        "var b=window.parent.document.getElementById('copyDraftBtn');"
+        "var ta=window.parent.document.querySelector('textarea[aria-label=\"翻译模板草稿\"]');"
+        "if(b&&!b.dataset.bound){b.dataset.bound='1';"
+        "b.addEventListener('click',function(){"
+        "var txt=ta?ta.value:_fb;"
+        "if(txt===undefined||txt===null)txt=_fb;"
+        "navigator.clipboard.writeText(txt);"
+        "b.textContent='✅';setTimeout(function(){b.textContent='📋';},1500);"
+        "});}"
+        "}"
         "function _initAR(){"
         "['翻译前定制项','翻译后定制项','翻译模板草稿'].forEach(function(l){"
         "var ta=window.parent.document.querySelector('textarea[aria-label=\"'+l+'\"]');"
         "if(ta&&!ta.dataset.ar){ta.dataset.ar='1';ta.addEventListener('input',function(){_ar(ta);});_ar(ta);}"
         "});"
+        "_bindCopy();"
         "}"
         "_initAR();"
         "var _obs=new MutationObserver(_initAR);"
