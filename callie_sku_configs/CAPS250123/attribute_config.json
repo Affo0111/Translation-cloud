@@ -1,0 +1,174 @@
+{
+  "groups": [
+    {
+      "name": "Gender",
+      "gid": 100
+    },
+    {
+      "name": "Badge Reel Color",
+      "gid": 221
+    },
+    {
+      "name": "Facial Expression",
+      "gid": 122
+    },
+    {
+      "name": "Skin Tone",
+      "gid": 124
+    },
+    {
+      "name": "Eyes Color",
+      "gid": 123
+    },
+    {
+      "name": "Glasses",
+      "gid": 101
+    },
+    {
+      "name": "Face Mask",
+      "gid": 117
+    },
+    {
+      "name": "Hair Color",
+      "gid": 107
+    },
+    {
+      "name": "Hairstyle",
+      "gid": 116
+    },
+    {
+      "name": "Undershirt",
+      "gid": 119
+    },
+    {
+      "name": "Pants",
+      "gid": 120
+    },
+    {
+      "name": "Clothes",
+      "gid": 118
+    },
+    {
+      "name": "Shoes",
+      "gid": 121
+    },
+    {
+      "name": "Hand-held Item",
+      "gid": 103
+    },
+    {
+      "name": "Drinks",
+      "gid": 106
+    },
+    {
+      "name": "Name Color",
+      "gid": 162
+    },
+    {
+      "name": "Title",
+      "gid": 163
+    },
+    {
+      "name": "Name Color",
+      "gid": 176
+    },
+    {
+      "name": "Title",
+      "gid": 177
+    },
+    {
+      "name": "Name Color",
+      "gid": 190
+    },
+    {
+      "name": "Title",
+      "gid": 191
+    },
+    {
+      "name": "Name Color",
+      "gid": 204
+    },
+    {
+      "name": "Title",
+      "gid": 205
+    },
+    {
+      "name": "Name Color",
+      "gid": 218
+    },
+    {
+      "name": "Title",
+      "gid": 219
+    }
+  ],
+  "groups_by_name": {
+    "Gender": {
+      "name": "Gender",
+      "gid": 100
+    },
+    "Badge Reel Color": {
+      "name": "Badge Reel Color",
+      "gid": 221
+    },
+    "Facial Expression": {
+      "name": "Facial Expression",
+      "gid": 122
+    },
+    "Skin Tone": {
+      "name": "Skin Tone",
+      "gid": 124
+    },
+    "Eyes Color": {
+      "name": "Eyes Color",
+      "gid": 123
+    },
+    "Glasses": {
+      "name": "Glasses",
+      "gid": 101
+    },
+    "Face Mask": {
+      "name": "Face Mask",
+      "gid": 117
+    },
+    "Hair Color": {
+      "name": "Hair Color",
+      "gid": 107
+    },
+    "Hairstyle": {
+      "name": "Hairstyle",
+      "gid": 116
+    },
+    "Undershirt": {
+      "name": "Undershirt",
+      "gid": 119
+    },
+    "Pants": {
+      "name": "Pants",
+      "gid": 120
+    },
+    "Clothes": {
+      "name": "Clothes",
+      "gid": 118
+    },
+    "Shoes": {
+      "name": "Shoes",
+      "gid": 121
+    },
+    "Hand-held Item": {
+      "name": "Hand-held Item",
+      "gid": 103
+    },
+    "Drinks": {
+      "name": "Drinks",
+      "gid": 106
+    },
+    "Name Color": {
+      "name": "Name Color",
+      "gid": 218
+    },
+    "Title": {
+      "name": "Title",
+      "gid": 219
+    }
+  }
+}

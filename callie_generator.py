@@ -752,8 +752,10 @@ def generate_callie_v2(j_text, rule, attr=None, collect_unmatched=False):
     for m in field_mapping_all:
         jk = m["j_key"]
         az = m["az_field"]
-        if jk in ignore:
-            continue  # 忽略字段：不输出自身行（值已保留在 norm 供模板 / 路由引用）
+        # dynamic 路由目标：即便命中 ! 忽略，也按 conditional_routing 显式输出该行
+        # （! 仅用于抑制「隐式/默认」输出；值仍保留在 norm 供路由依赖读取）
+        if jk in ignore and m.get("id") != "dynamic":
+            continue
         rv = norm.get(jk, "")
         if not rv:
             continue  # 无值则不输出该行（固定字段由 fixed_fields 处理默认值）
