@@ -633,26 +633,30 @@ with col1, _step_card("步骤1：上传模板"):
         type=["xlsx", "xls"], key="template_uploader", label_visibility="collapsed",
     )
     if template_file is not None:
-        _cleanup(st.session_state.result_path)
-        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
-        tmp.write(template_file.getbuffer())
-        tmp.close()
-        real_path = tmp.name
-        try:
-            parsed, df, errors, _, _ = _load_template_with_errors(real_path)
-            st.session_state.processing_done = False
-            st.session_state.template_rules = parsed
-            st.session_state.template_df = df
-            st.session_state.template_name = template_file.name
-            st.session_state.template_saved = True
-            st.session_state.template_path = real_path
-            st.session_state.parse_errors_list = errors
-            st.session_state.csv_template_text = ""
-            _ensure_callie_loaded()
-        except Exception as e:
-            st.error(f"❌ {e}")
+        if _is_shortcut(template_file):
+            st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请右键快捷方式→「打开文件所在位置」，选真实的 .xlsx/.xls 上传。")
             st.session_state.template_saved = False
-            _cleanup(real_path)
+        else:
+            _cleanup(st.session_state.result_path)
+            tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+            tmp.write(template_file.getbuffer())
+            tmp.close()
+            real_path = tmp.name
+            try:
+                parsed, df, errors, _, _ = _load_template_with_errors(real_path)
+                st.session_state.processing_done = False
+                st.session_state.template_rules = parsed
+                st.session_state.template_df = df
+                st.session_state.template_name = template_file.name
+                st.session_state.template_saved = True
+                st.session_state.template_path = real_path
+                st.session_state.parse_errors_list = errors
+                st.session_state.csv_template_text = ""
+                _ensure_callie_loaded()
+            except Exception as e:
+                st.error(f"❌ {e}")
+                st.session_state.template_saved = False
+                _cleanup(real_path)
 
     if st.session_state.template_saved:
         st.markdown(
@@ -936,6 +940,8 @@ with st.expander("属性表入库"):
     if st.button("📥 入库属性表", key="btn_register"):
         if not attr_file:
             st.warning("请上传 attribute.xlsx")
+        elif _is_shortcut(attr_file):
+            st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请选真实 .xlsx 上传。")
         else:
             sku = _derive_sku_from_filename(attr_file.name)
             if not sku:
@@ -963,19 +969,22 @@ with st.expander("规则草稿生成"):
         type=["xlsx", "xls"], key="draft_template", label_visibility="collapsed",
     )
     if _draft_upl is not None:
-        _cleanup(st.session_state.get("draft_template_path"))
-        _dn = _draft_upl.name
-        _tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
-        _tmp.write(_draft_upl.getbuffer())
-        _tmp.close()
-        _rp = _tmp.name
-        st.session_state.draft_template_path = _rp
-        st.session_state.draft_template_name = _dn
-        st.session_state.draft_template_saved = True
-        # 同步给步骤三导出用，省得再传一次
-        st.session_state.callie_template_path = _rp
-        st.session_state.callie_template_name = _dn
-        st.session_state.callie_template_saved = True
+        if _is_shortcut(_draft_upl):
+            st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请选真实 .xlsx/.xls 上传。")
+        else:
+            _cleanup(st.session_state.get("draft_template_path"))
+            _dn = _draft_upl.name
+            _tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+            _tmp.write(_draft_upl.getbuffer())
+            _tmp.close()
+            _rp = _tmp.name
+            st.session_state.draft_template_path = _rp
+            st.session_state.draft_template_name = _dn
+            st.session_state.draft_template_saved = True
+            # 同步给步骤三导出用，省得再传一次
+            st.session_state.callie_template_path = _rp
+            st.session_state.callie_template_name = _dn
+            st.session_state.callie_template_saved = True
 
     if not st.session_state.get("draft_template_saved"):
         if st.session_state.get("callie_template_saved") and st.session_state.get("callie_template_path"):
@@ -1092,6 +1101,45 @@ def _save_upload(uploaded):
     return tmp.name
 
 
+def _is_shortcut(uploaded):
+    """判断上传的究竟是真实 Excel，还是 Windows 快捷方式（.lnk）。
+
+    .lnk 文件被拖进上传框时，Streamlit 只看到 1KB 左右的快捷方式字节，
+    openpyxl/pandas 无法解析，会报「文件不是有效 xlsx」之类错误。
+    通过文件名后缀 + 文件头魔数双重判定，给出清晰提示。
+    """
+    name = (uploaded.name or "").lower()
+    if name.endswith(".lnk"):
+        return True
+    # 文件头魔数：.lnk 固定以字节 4C 00 00 00 01 14 02 00 开头
+    head = bytes(uploaded.getbuffer()[:8])
+    if head[:4] == b"\x4c\x00\x00\x00" and head[4:8] == b"\x01\x14\x02\x00":
+        return True
+    return False
+
+
+def _append_missing_columns(dst_path, result_df, missing_cols):
+    """原订单缺失的同步列（AW/AX/AY 等）追加到末尾，保证导出文件包含并填值。
+
+    仅在轻量更新之后调用；对「列缺失」的老订单兜底，避免数据静默丢失。
+    用 openpyxl 追加（保留已轻量写入的样式/图片），效率低于 XML 直改但仅针对少量缺列。
+    """
+    import openpyxl
+    wb = openpyxl.load_workbook(dst_path)
+    ws = wb.active
+    start_col = ws.max_column + 1
+    n_rows = len(result_df)
+    for offset, col in enumerate(missing_cols):
+        c_idx = start_col + offset
+        # 表头
+        ws.cell(row=1, column=c_idx, value=col)
+        # 数据行（result_df 与订单行一一对应）
+        for i in range(n_rows):
+            v = result_df.iloc[i][col]
+            ws.cell(row=i + 2, column=c_idx, value="" if pd.isna(v) else str(v))
+    wb.save(dst_path)
+
+
 def _export_callie_preserve_format(src_path, dst_path, orig_df, result_df,
                                    sync_cols=("callie定制项", "参考callie站点", "calie商品ID", "callie商品版本")):
     """保留原订单格式（图片/列宽/样式/合并单元格）导出，只写有变化的列单元格。
@@ -1104,11 +1152,16 @@ def _export_callie_preserve_format(src_path, dst_path, orig_df, result_df,
       参考callie站点(AW)          —— 恒为 callie
       calie商品ID(AX)            —— 翻译模板「calie商品ID和商品版本」列
       callie商品版本(AY)          —— 翻译模板「calie商品ID和商品版本」列
-    若 orig_df 中某列不存在（老订单），该列跳过同步，仅依赖存在的列轻量更新；
-    全部列都不存在才退回 pandas 写（会丢失图片/格式）。
+
+    鲁棒性：
+      * 原订单已含这些列 → 轻量更新已有单元格（保留图片/格式）；
+      * 原订单缺某列（老订单/不同模板导出）→ 该列追加到末尾（列名 + 每行值），保证数据不丢；
+      * 全部列都不存在 → 退回 pandas 写（会丢失图片/格式）。
     """
     present = [c for c in sync_cols if c in orig_df.columns and c in result_df.columns]
-    if not present:
+    missing = [c for c in sync_cols if c in result_df.columns and c not in orig_df.columns]
+
+    if not present and not missing:
         # 兜底：老订单无这些列 → 退回 pandas 写
         result_df.to_excel(dst_path, index=False)
         return
@@ -1126,7 +1179,7 @@ def _export_callie_preserve_format(src_path, dst_path, orig_df, result_df,
                 # 0-based 数据行 → 1-based Excel 行（+1 表头 +1 索引）
                 updates.setdefault(i + 2, {})[letter] = new_s
 
-    if not updates:
+    if not updates and not missing:
         shutil.copy2(src_path, dst_path)
         return
 
@@ -1150,6 +1203,10 @@ def _export_callie_preserve_format(src_path, dst_path, orig_df, result_df,
         finally:
             _cleanup(tmp_xlsx)
 
+    # 原订单缺失的列（AW/AX/AY 等）→ 追加到末尾，确保导出文件里出现并填值
+    if missing:
+        _append_missing_columns(dst_path, result_df, missing)
+
 # ── B 系统四列卡片布局（与 A 系统一致）────────────────────────────
 bcol1, bcol2, bcol3, bcol4 = st.columns(4, gap="small")
 
@@ -1160,21 +1217,25 @@ with bcol1, _step_card("步骤1：上传翻译模板"):
         type=["xlsx", "xls"], key="callie_template", label_visibility="collapsed",
     )
     if template_file is not None:
-        _cleanup(st.session_state.get("callie_template_path"))
-        tpl_name = template_file.name
-        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
-        tmp.write(template_file.getbuffer())
-        tmp.close()
-        real_path = tmp.name
-        try:
-            st.session_state.callie_template_path = real_path
-            st.session_state.callie_template_name = tpl_name
-            st.session_state.callie_template_saved = True
-            st.session_state.callie_result_path = None
-        except Exception as e:
-            st.error(f"❌ {e}")
+        if _is_shortcut(template_file):
+            st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请右键快捷方式→「打开文件所在位置」，选真实的 .xlsx/.xls 上传。")
             st.session_state.callie_template_saved = False
-            _cleanup(real_path)
+        else:
+            _cleanup(st.session_state.get("callie_template_path"))
+            tpl_name = template_file.name
+            tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+            tmp.write(template_file.getbuffer())
+            tmp.close()
+            real_path = tmp.name
+            try:
+                st.session_state.callie_template_path = real_path
+                st.session_state.callie_template_name = tpl_name
+                st.session_state.callie_template_saved = True
+                st.session_state.callie_result_path = None
+            except Exception as e:
+                st.error(f"❌ {e}")
+                st.session_state.callie_template_saved = False
+                _cleanup(real_path)
 
     if st.session_state.get("callie_template_saved"):
         st.markdown(
@@ -1203,20 +1264,24 @@ with bcol2, _step_card("步骤2：上传订单"):
         type=["xlsx", "xls"], key="callie_order", label_visibility="collapsed",
     )
     if order_file is not None:
-        _cleanup(st.session_state.get("callie_order_path"))
-        _cleanup(st.session_state.get("callie_result_path"))
-        tmp = tempfile.NamedTemporaryFile(suffix=os.path.splitext(order_file.name)[1] or ".xlsx", delete=False)
-        tmp.write(order_file.getbuffer()); tmp.close()
-        try:
-            st.session_state.callie_order_df = pd.read_excel(tmp.name, dtype=str)
-            st.session_state.callie_order_path = tmp.name
-            st.session_state.callie_order_name = order_file.name
-            st.session_state.callie_order_saved = True
-            st.session_state.callie_result_path = None
-        except Exception as e:
-            st.error(f"❌ {e}")
+        if _is_shortcut(order_file):
+            st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请右键快捷方式→「打开文件所在位置」，选真实的 .xlsx/.xls 上传。")
             st.session_state.callie_order_saved = False
-            _cleanup(tmp.name)
+        else:
+            _cleanup(st.session_state.get("callie_order_path"))
+            _cleanup(st.session_state.get("callie_result_path"))
+            tmp = tempfile.NamedTemporaryFile(suffix=os.path.splitext(order_file.name)[1] or ".xlsx", delete=False)
+            tmp.write(order_file.getbuffer()); tmp.close()
+            try:
+                st.session_state.callie_order_df = pd.read_excel(tmp.name, dtype=str)
+                st.session_state.callie_order_path = tmp.name
+                st.session_state.callie_order_name = order_file.name
+                st.session_state.callie_order_saved = True
+                st.session_state.callie_result_path = None
+            except Exception as e:
+                st.error(f"❌ {e}")
+                st.session_state.callie_order_saved = False
+                _cleanup(tmp.name)
 
     if st.session_state.get("callie_order_saved"):
         st.markdown(

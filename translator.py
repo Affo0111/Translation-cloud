@@ -1136,7 +1136,11 @@ def _update_xlsx_cells_lightweight(
                             if rel.get('Id') == r_id:
                                 target = rel.get('Target', '')
                                 if target:
-                                    sheet_path = f'xl/{target}' if not target.startswith('/') else target
+                                    # 归一化：去掉可能的绝对路径前导斜杠（zip 条目名不含前导 '/'），
+                                    # 并统一成 xl/ 开头的相对路径，避免部分文件用绝对 Target
+                                    # 导致 zf.read('/xl/worksheets/sheet1.xml') 抛 FileNotFoundError。
+                                    t = target.lstrip('/')
+                                    sheet_path = t if t.startswith('xl/') else f'xl/{t}'
                                 break
 
         # 1b. 读取共享字符串表 (SharedStrings)
@@ -1161,7 +1165,18 @@ def _update_xlsx_cells_lightweight(
 
         # 1c. 读取工作表 XML
         if sheet_path not in zf.namelist():
-            raise FileNotFoundError(f"工作表文件不存在: {sheet_path}")
+            # 兜底：尝试去掉前导斜杠 / 在压缩包内模糊匹配 sheet1.xml，
+            # 兼容各种写法的 workbook.xml.rels（绝对/相对/带 xl/ 前缀）。
+            cand = sheet_path.lstrip('/')
+            if cand in zf.namelist():
+                sheet_path = cand
+            else:
+                hits = [n for n in zf.namelist()
+                        if n.endswith('worksheets/sheet1.xml') or n.endswith('worksheets/sheet.xml')]
+                if hits:
+                    sheet_path = hits[0]
+                else:
+                    raise FileNotFoundError(f"工作表文件不存在: {sheet_path}")
         ws_xml = zf.read(sheet_path)
         ws_root = ET.fromstring(ws_xml)
 

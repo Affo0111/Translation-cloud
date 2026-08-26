@@ -911,6 +911,15 @@ def parse_callie_product(g_text):
     return cid, cver
 
 
+def _norm_sku(sku):
+    """SKU 归一化：去首尾空格、转小写，用于模板商品信息与订单 SKU 的稳健匹配。
+
+    订单里的 SKU 常带多余空格或大小写差异，导致模板「calie商品ID和商品版本」
+    列里配好的商品信息匹配不上，AW/AX/AY 三列因此随机留空。归一化后稳定命中。
+    """
+    return str(sku or "").strip().lower()
+
+
 def build_callie_product_map(template_path):
     """读取翻译模板，返回 {sku: {"id":..., "version":...}}（仅含 G 列非空的 SKU）。
 
@@ -941,7 +950,7 @@ def build_callie_product_map(template_path):
             continue
         cid, cver = parse_callie_product(g)
         if cid or cver:
-            result[sku] = {"id": cid, "version": cver}
+            result[_norm_sku(sku)] = {"id": cid, "version": cver}
     return result
 
 
@@ -962,15 +971,20 @@ def process_orders(df, sku_cfgs, callie_product_map=None,
         if c not in result.columns:
             result[c] = ""
     callie_product_map = callie_product_map or {}
+    # 归一化 SKU 键，避免订单 SKU 与模板/商品信息 SKU 的大小写/空格差异导致匹配不上
+    _sku_cfgs = {_norm_sku(k): v for k, v in (sku_cfgs or {}).items()}
+    _cp_map = {_norm_sku(k): v for k, v in callie_product_map.items()}
     errors = []
+    _warned_no_product = set()
     for idx, row in result.iterrows():
         sku = str(row.get(sku_col, "") or "").strip()
         j = str(row.get(j_col, "") or "").strip()
         if not sku and not j:
             continue
         line_no = (idx + 2) if isinstance(idx, int) else ""
-        cfg = sku_cfgs.get(sku)
-        cp = callie_product_map.get(sku)
+        sku_n = _norm_sku(sku)
+        cfg = _sku_cfgs.get(sku_n)
+        cp = _cp_map.get(sku_n)
 
         # ── callie 商品信息三列（AW=参考callie站点 / AX=calie商品ID / AY=callie商品版本）──
         # 三列均来自翻译模板 G 列：只有该 SKU 在模板里配了 callie 商品信息，才填充 AW=callie / AX / AY；
@@ -979,6 +993,11 @@ def process_orders(df, sku_cfgs, callie_product_map=None,
             result.at[idx, site_col] = "callie"
             result.at[idx, id_col] = cp.get("id") or ""
             result.at[idx, ver_col] = cp.get("version") or ""
+        elif cfg is not None and not sku_n in _warned_no_product:
+            # AZ 能生成但没配商品信息 → 明确提示，避免 AW/AX/AY「随机留空」却看不到原因
+            _warned_no_product.add(sku_n)
+            errors.append({"行号": "", "SKU": sku, "状态": "无商品信息",
+                           "说明": "翻译模板「calie商品ID和商品版本」列未配该 SKU，AW/AX/AY 留空"})
 
         # ── callie 定制项（AZ / az_col）：来自 D 列规则编译 ──
         if cfg is None:
