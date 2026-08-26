@@ -53,6 +53,9 @@ def _parse_when(cond_part):
       -> [{"field": "Gender", "value": "Woman"}, {"field": "Age", "value": "Senior"}]
     单条件 `[Gender:Woman]` -> [{"field": "Gender", "value": "Woman"}]。
     始终返回 list（便于引擎统一按 AND 处理，并兼容旧的单 dict 数据）。
+
+    扩展：长度条件 `[Field#len:N]` -> {"field": "Field", "op": "len", "value": "N"}，
+    引擎按「字段值的字符长度 == N」判断（用于 Title 字母数分支等自由文本场景）。
     """
     conds = []
     for seg in cond_part.split("&"):
@@ -62,7 +65,13 @@ def _parse_when(cond_part):
         if ":" not in seg:
             raise ValueError(f"条件部分应为 [字段:值]: {cond_part!r}")
         f, v = seg.split(":", 1)
-        conds.append({"field": f.strip(), "value": v.strip()})
+        f = f.strip()
+        v = v.strip()
+        if "#len" in f:
+            fname = f.replace("#len", "").strip()
+            conds.append({"field": fname, "op": "len", "value": v})
+        else:
+            conds.append({"field": f, "value": v})
     if not conds:
         raise ValueError(f"条件规则缺少有效条件: {cond_part!r}")
     return conds

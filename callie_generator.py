@@ -557,11 +557,26 @@ def _when_ok(when, norm):
       * 单 dict（兼容旧数据 / 单条件）：{"field":..,"value":..}
       * dict 列表（& 连接的多条件）：[{field,value}, ...]  —— 全部命中才 True
     空 / None -> 视为无守卫，直接 True。
+
+    条件支持两种匹配：
+      * 默认（无 op）：字段值精确相等 `norm[field] == value`
+      * op=="len"：字段值的字符长度相等 `len(norm[field]) == int(value)`
+        （用于 Title 字母数等自由文本的长度分支）
     """
     if not when:
         return True
     conds = when if isinstance(when, list) else [when]
     for c in conds:
+        op = c.get("op")
+        if op == "len":
+            raw_val = norm.get(c["field"], "")
+            try:
+                target = int(str(c["value"]))
+            except (ValueError, TypeError):
+                return False
+            if len(str(raw_val).strip()) != target:
+                return False
+            continue
         if norm.get(c["field"], "") != c["value"]:
             return False
     return True
