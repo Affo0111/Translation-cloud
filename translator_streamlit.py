@@ -951,8 +951,13 @@ with st.expander("属性表入库"):
                 tmp.write(attr_file.getbuffer()); tmp.close()
                 try:
                     import build_callie_sku
-                    build_callie_sku.main(sku, tmp.name)
-                    st.success(f"✅ 已入库 {sku}（属性表已保存，B 系统导出时自动识别，无需重复上传）")
+                    attr = build_callie_sku.main(sku, tmp.name)
+                    n_grp = len(attr.get("groups", [])) if attr else 0
+                    n_opt = sum(1 for g in attr.get("groups", []) if g.get("opts")) if attr else 0
+                    if n_opt == 0:
+                        st.warning(f"✅ 已入库 {sku}（{n_grp} 组），但**没有任何选项列表(opts)**——发色路由等值映射可能报「固定ID模式」。请确认上传的是 callie 后台导出的完整属性表。")
+                    else:
+                        st.success(f"✅ 已入库 {sku}（{n_grp} 组 / 含选项 {n_opt} 组），B 系统导出时自动复用")
                 except Exception as e:
                     st.error(f"入库失败：{e}")
                 finally:

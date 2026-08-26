@@ -50,29 +50,20 @@ STATIC = {
     "Clothes": 118, "Shoes": 121, "Hand-held Item": 103, "Drinks": 106,
 }
 
-# ── 1) attribute_config.json ──
-groups = []
-def add(name, gid, opts=None, tmpl=""):
-    g = {"name": name, "gid": gid}
-    if opts is not None:
-        g["opts"] = opts
-    if tmpl:
-        g["tmpl"] = tmpl
-    groups.append(g)
-
-for n, g in STATIC.items():
-    add(n, g)
-# Name Color / Title 长度敏感组（便于引擎校验与隐式映射）
-for L in (2, 3, 4, 5, 6):
-    add("Name Color", NAMECOLOR[L])
-    add("Title", TITLE[L])
-# Name 的 60 个 gid 在 conditional_fixed_lines 中硬编码使用，属性表不重复注册
-#（否则同名/多 gid 会让 groups_by_name 二义性）。
-
-attr = {"groups": groups, "groups_by_name": {g["name"]: g for g in groups}}
-with open(os.path.join(OUTDIR, "attribute_config.json"), "w", encoding="utf-8") as f:
-    json.dump(attr, f, ensure_ascii=False, indent=2)
-print(f"[ok] 写入 {OUTDIR}/attribute_config.json  (groups={len(groups)})")
+# ── 1) attribute_config.json：只读，绝不覆盖 ──
+# 属性表唯一来源 = callie 后台导出 xlsx 经 B 系统「属性表入库」(build_callie_sku.main) 编译生成。
+# 本脚本只负责生成【规则文本】，不再硬编码重写属性表，避免覆盖已入库的完整版。
+#（2026-08-26 事故：此处曾硬编码写残缺 gid 表，覆盖了用户已入库的 123-group 完整属性表，
+#   导致发色→发型 gid 路由报「固定ID模式」。现已改为只读。）
+attr_path = os.path.join(OUTDIR, "attribute_config.json")
+if not os.path.exists(attr_path):
+    raise SystemExit(
+        "❌ 缺少 attribute_config.json。请先在 B 系统「属性表入库」上传 callie 导出的属性表 xlsx。")
+with open(attr_path, encoding="utf-8") as f:
+    attr = json.load(f)
+n_groups = len(attr.get("groups", []))
+n_opts = sum(1 for g in attr.get("groups", []) if g.get("opts"))
+print(f"[ok] 使用已入库属性表 {attr_path}  (groups={n_groups}, 含opts组={n_opts})，未覆盖")
 
 # ── 2) 规则文本（D 列记号，写入模板 E 列）──
 L = []

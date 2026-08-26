@@ -99,8 +99,10 @@ def main(sku=None, xlsx=None, rule_in=None):
     # 编译属性表 → attribute_config.json（入库；B 系统导出时自动复用，无需重复上传）
     attr_json = os.path.join(base, "attribute_config.json")
     attr = cg.save_attribute_config(xlsx, attr_json)
-    print(f"[ok] 属性表已入库 -> {attr_json}  ({len(attr['groups'])} 组)")
+    n_opts = sum(1 for g in attr["groups"] if g.get("opts"))
+    print(f"[ok] 属性表已入库 -> {attr_json}  ({len(attr['groups'])} 组，含选项 {n_opts} 组)")
     print("      B 系统导出时会按订单 SKU 自动复用此属性表；规则由翻译模板 D/E/F 编译。")
+    return attr
 
 
 if __name__ == "__main__":
