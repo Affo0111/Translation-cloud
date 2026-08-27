@@ -1023,17 +1023,50 @@ def parse_std_rules(std_text):
     return rules
 
 
+def _compile_std_wildcard(raw):
+    """把含 '*' 的标准规则原始行编译成正则。
+
+    '*' 匹配任意内容（贪婪），其它字符按字面转义；返回 (compiled_regex, 捕获组数)。
+    目标行里可用 $1、$2 … 引用对应捕获组。
+    """
+    parts = []
+    n = 0
+    i = 0
+    while i < len(raw):
+        if raw[i] == "*":
+            parts.append("(.*)")
+            n += 1
+            i += 1
+        else:
+            j = raw.find("*", i)
+            if j == -1:
+                parts.append(re.escape(raw[i:]))
+                break
+            parts.append(re.escape(raw[i:j]))
+            i = j
+    return re.compile("^" + "".join(parts) + "$"), n
+
+
 def normalize_j(j_text, std_rules):
     """对 J 列文本执行阶段 0 标准化，返回标准化后的 J 文本。
 
     std_rules: parse_std_rules 返回的列表。为空则原样返回。
+
+    支持两类规则：
+      1) 精确匹配：`rule|原始行|目标1|目标2|...`（原始行不含 '*'）
+      2) 通配匹配：原始行含 '*' 时，'*' 匹配任意内容，目标行可用 $1/$2… 引用捕获组
+         例：`rule|Hairstyle:*-Hairstyle-*|Hair Color:$1|Hairstyle:Hairstyle-$2`
     """
     if not std_rules:
         return j_text
     # 同原始行取第一条规则（书写顺序优先）
     rule_map = {}
+    wildcard_rules = []   # [(compiled_regex, num_groups, targets)]
     for raw, targets in std_rules:
-        if raw not in rule_map:
+        if "*" in raw:
+            rx, n = _compile_std_wildcard(raw)
+            wildcard_rules.append((rx, n, targets))
+        elif raw not in rule_map:
             rule_map[raw] = targets
 
     out_lines = []
@@ -1044,6 +1077,20 @@ def normalize_j(j_text, std_rules):
             if targets:  # 一对多展开
                 out_lines.extend(targets)
             # 目标为空 = 删除该行（不追加）
-        else:
+            continue
+        # 通配匹配（按书写顺序，命中第一条即停）
+        matched = False
+        for rx, n, targets in wildcard_rules:
+            m = rx.match(stripped)
+            if m:
+                if targets:
+                    for t in targets:
+                        out = t
+                        for gi in range(1, n + 1):
+                            out = out.replace("${}".format(gi), m.group(gi))
+                        out_lines.append(out)
+                matched = True
+                break
+        if not matched:
             out_lines.append(line)  # 未匹配：原样保留
     return "\n".join(out_lines)
