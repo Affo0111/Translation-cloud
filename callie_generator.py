@@ -673,8 +673,11 @@ def generate_callie_v2(j_text, rule, attr=None, collect_unmatched=False):
     # 仅当声明了 @template 且属性表可用时生效；字段 gid 查询按此模板集过滤。
     active_templates = None
     template_field = rule.get("template_field")
+    template_default = rule.get("template_default")
     if attr is not None and template_field:
         tv = norm.get(template_field, "").strip()
+        if not tv and template_default:
+            tv = template_default
         if tv:
             active_templates = {tv, "public"}
 

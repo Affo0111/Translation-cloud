@@ -100,12 +100,20 @@ def parse_d_notation(d_text):
     ignore_keys = []
     output_order_fields = []
     template_field = None
+    template_default = None
 
     for raw in _split_entries(d_text):
         if raw.startswith("@template"):
             # @template: Gender —— 声明「模板选择字段」（J 列字段名，其值对应属性表 tmpl）。
             # 引擎运行时读该字段值 → 定位模板 → 字段查 gid 只在「该模板 + public」里找。
-            template_field = raw[len("@template"):].lstrip(":").strip()
+            # 支持「@template: Gender = Woman」：等号后为缺省模板（J 无该字段时兜底）。
+            body = raw[len("@template"):].lstrip(":").strip()
+            if "=" in body:
+                _field, _default = body.split("=", 1)
+                template_field = _field.strip()
+                template_default = _default.strip()
+            else:
+                template_field = body
             continue
         if raw.startswith("?"):
             # 条件执行：? [条件1] & [条件2] & ... , <动作>（& = 所有条件同时满足）
@@ -167,6 +175,7 @@ def parse_d_notation(d_text):
         "ignore_keys": ignore_keys,
         "output_order_fields": output_order_fields,
         "template_field": template_field,
+        "template_default": template_default,
     }
 
 
@@ -505,6 +514,7 @@ def compile_rule(sku, d_text, e_text, f_text, attr):
         "output_order": output_order,
         "ignore_keys": d["ignore_keys"],
         "template_field": d["template_field"],
+        "template_default": d["template_default"],
     }
     # 启动期校验（ID 合法性等），提前暴露配置错误
     cg.validate_config_v2(rule, attr)
