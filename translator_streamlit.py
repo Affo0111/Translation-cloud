@@ -38,6 +38,23 @@ from translator import (
     _col_idx_to_letter,
 )
 
+# ── 上传文件工具：识别 Windows 快捷方式（.lnk）────────────────────────
+def _is_shortcut(uploaded):
+    """判断上传的究竟是真实 Excel，还是 Windows 快捷方式（.lnk）。
+
+    .lnk 文件被拖进上传框时，Streamlit 只看到 1KB 左右的快捷方式字节，
+    openpyxl/pandas 无法解析，会报「文件不是有效 xlsx」之类错误。
+    通过文件名后缀 + 文件头魔数双重判定，给出清晰提示。
+    """
+    name = (uploaded.name or "").lower()
+    if name.endswith(".lnk"):
+        return True
+    # 文件头魔数：.lnk 固定以字节 4C 00 00 00 01 14 02 00 开头
+    head = bytes(uploaded.getbuffer()[:8])
+    if head[:4] == b"\x4c\x00\x00\x00" and head[4:8] == b"\x01\x14\x02\x00":
+        return True
+    return False
+
 # ════════════════════════════════════════════════════════════════════════════
 # 规则说明弹窗（A / B 系统共用）
 # ════════════════════════════════════════════════════════════════════════════
@@ -1120,23 +1137,6 @@ def _save_upload(uploaded):
     tmp.write(uploaded.getbuffer())
     tmp.close()
     return tmp.name
-
-
-def _is_shortcut(uploaded):
-    """判断上传的究竟是真实 Excel，还是 Windows 快捷方式（.lnk）。
-
-    .lnk 文件被拖进上传框时，Streamlit 只看到 1KB 左右的快捷方式字节，
-    openpyxl/pandas 无法解析，会报「文件不是有效 xlsx」之类错误。
-    通过文件名后缀 + 文件头魔数双重判定，给出清晰提示。
-    """
-    name = (uploaded.name or "").lower()
-    if name.endswith(".lnk"):
-        return True
-    # 文件头魔数：.lnk 固定以字节 4C 00 00 00 01 14 02 00 开头
-    head = bytes(uploaded.getbuffer()[:8])
-    if head[:4] == b"\x4c\x00\x00\x00" and head[4:8] == b"\x01\x14\x02\x00":
-        return True
-    return False
 
 
 def _append_missing_columns(dst_path, result_df, missing_cols):
