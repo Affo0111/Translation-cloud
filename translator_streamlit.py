@@ -90,7 +90,7 @@ _B_SYSTEM_RULES_MD = r"""
 ### 语法（callie定制项翻译规则 列）
 | 符号 | 名称 | 写法 | 示例 |
 |------|------|------|------|
-| `@template` | 模板切换 | `@template: 字段名` | `@template: Gender` → 按 Gender 值切换男女属性表模板 |
+| `@template` | 模板切换 | `@template: 字段名` 或 `@template: 字段名 = 缺省值` | `@template: Gender` → 按 Gender 值切换男女模板；`@template: Gender = Woman` → 订单 J 无 Gender 时默认用女性模板 |
 | `+[字段:默认值]` | 固定字段 | `+[Facial Expression:Open Eyes]` | 自动查属性表补 ID 输出 |
 | `+[ID\|字段名:\|值]` | 固定行 | `+[104\|Hijab Option:\|without Hijab]` | 直接输出固定 gid 行 |
 | `+[ID\|字段:\|[JKey]]` | 带占位符固定行 | `+[170\|Color:\|[Color]]` | 用 J 列 Color 值替换占位符 |
@@ -116,12 +116,32 @@ rule|原始行|目标行1|目标行2|...;
 - 原始行/目标行**不得含 `|`**（用作分隔符）；
 - 执行：**单轮、非链式、按书写顺序**；一条原始行命中第一条能匹配的规则后即替换，不再参与后续匹配；未匹配行原样保留。
 
+**通配符**（原始行含 `*` 时启用）：
+```
+rule|Hairstyle:*-Hairstyle-*|Hair Color:$1|Hairstyle:Hairstyle-$2;
+```
+- `*` 匹配任意内容（贪婪），目标行可用 `$1`、`$2`… 引用对应的 `*` 捕获组；
+- 上例把合并字段 `Hairstyle:Deepest Blue Black-Hairstyle-2` 拆成 `Hair Color:Deepest Blue Black` + `Hairstyle:Hairstyle-2`，**一条规则覆盖所有发色/发型**，无需逐个枚举；
+- 精确规则（无 `*`）优先于通配规则匹配；原始行含 `*` 才会走通配。
+
 **完整示例（PL251368）**
 ```
 rule|Skin Tone:Young 1|Age:Young|Skin Tone:1;
 rule|Beard Color - Style:Dark Brown-8|Beard Color:Dark Brown|Beard Style:8;
 ```
 第一行把 `Skin Tone:Young 1` 拆成 `Age:Young` + `Skin Tone:1`；第二行把合并字段 `Beard Color - Style:Dark Brown-8` 拆成两个独立字段。标准化后的 J 再交给上方翻译规则处理。
+
+### 单性别产品（订单 J 无 Gender 字段）
+有些产品属性表里有男女两套模板，但**只做其中一个性别**（如只做女性），此时订单 J 列不会出现 `Gender` 字段。直接写 `@template: Gender` 会因读不到值而失效（跨模板字段输出字面 `template|`）。
+
+**正确写法**：`@template` 加缺省值 + `+[Gender:...]` 固定字段两行配合：
+```text
+@template: Gender = Woman     # 等号后=缺省模板：J 无 Gender 时默认按女性解析 gid
++[Gender:Woman]               # 固定字段：①输出 100|Gender:|Woman 行 ②让下方 ? [Gender:Woman] 守卫读到值
+? [Gender:Woman],[Hair Color:9色]=[108~116];   # 发色→发型路由（守卫靠上面固定字段注入的 Gender）
+[Hair Color];
+```
+> 两行缺一不可：`@template = Woman` 只解决「字段 gid 解析」；`? [Gender:Woman]` 路由守卫仍需 `+[Gender:Woman]` 把值塞进条件才能触发。若将来订单 J 里真的出现 `Gender` 字段，会自动覆盖缺省值、走对应模板。
 
 ### 完整示例（PL251368，每行带 `#` 注释解释含义）
 ```text
