@@ -69,124 +69,120 @@ _A_SYSTEM_RULES_MD = r"""
 """
 
 _B_SYSTEM_RULES_MD = r"""
-### 作用
-根据订单「临时列(需删除)」（J 列）生成「callie定制项」（AZ 列），并按 SKU 从翻译模板「calie商品ID和商品版本」列自动填充：
-- **AW 列「参考callie站点」** → 只有该 SKU 在「calie商品ID和商品版本」列配了 callie 商品信息时才填 `callie`
-- **AX 列「calie商品ID」** → 来自「calie商品ID和商品版本」列
-- **AY 列「callie商品版本」** → 来自「calie商品ID和商品版本」列
+### 一、作用与输出列
+根据订单「临时列(需删除)」（J 列）生成「callie定制项」（AZ 列），并按 SKU 从翻译模板「calie商品ID和商品版本」列自动填充商品信息：
 
-> 列位置以原始订单 `pet8.17.xls` 为准：AW=参考callie站点、AX=calie商品ID、AY=callie商品版本、AZ=callie定制项。
+| 输出列 | 内容 | 来源 |
+|------|------|------|
+| AW 参考callie站点 | 恒为 `callie` | 模板「calie商品ID和商品版本」列有值才填 |
+| AX calie商品ID | callie 商品 ID | 同上 |
+| AY callie商品版本 | callie 商品版本 | 同上 |
+| AZ callie定制项 | 按规则生成的定制项 | 下方规则 |
 
-### 翻译模板列布局（方案 A）
-| 列 | 内容 |
+> 列位置以原始订单 `pet8.17.xls` 为准：AW/AX/AY/AZ 依次为参考callie站点 / calie商品ID / callie商品版本 / callie定制项。
+
+### 二、翻译模板列布局
+系统按**表头名**定位各列（不依赖固定列号）。当前 `Pet翻译模板.xlsx` 的布局：
+
+| 列（表头名） | 内容 |
 |------|------|
-| sku 列 | 产品 SKU（Pet 在 B 列、Supply 在 C 列，按表头名自动识别） |
-| **标准化规则**（原 D 列） | J 列标准化前置规则，详见下方「标准化规则（阶段 0）」 |
-| **callie定制项翻译规则**（原 E 列） | 下方语法表，编译生成 AZ |
-| 【临时列(需删除)】示例（原 F 列） | J 示例 |
-| 【callie定制项】示例（原 G 列） | AZ 示例 |
-| calie商品ID和商品版本（原 H 列） | 商品信息，填充 AW/AX/AY |
+| sku | 产品 SKU（Pet / Supply 模板列位置不同也能兼容） |
+| 标准化规则 | J 列标准化前置规则，见「五、标准化规则」 |
+| callie定制项翻译规则 | 下方语法表，编译生成 AZ |
+| 【临时列(需删除)】示例 | J 示例 |
+| 【callie定制项】示例 | AZ 示例 |
+| calie商品ID和商品版本 | 商品信息，填充 AW/AX/AY |
 
-### 语法（callie定制项翻译规则 列）
-| 符号 | 名称 | 写法 | 示例 |
+### 三、规则语法速查（callie定制项翻译规则 列）
+| 符号 | 含义 | 写法 | 示例 |
 |------|------|------|------|
-| `@template` | 模板切换 | `@template: 字段名` 或 `@template: 字段名 = 缺省值` | `@template: Gender` → 按 Gender 值切换男女模板；`@template: Gender = Woman` → 订单 J 无 Gender 时默认用女性模板 |
+| `@template` | 模板切换 | `@template: 字段` 或 `@template: 字段 = 缺省值` | `@template: Gender`（按值切男女）；`@template: Gender = Woman`（无该字段时默认女性） |
 | `+[字段:默认值]` | 固定字段 | `+[Facial Expression:Open Eyes]` | 自动查属性表补 ID 输出 |
 | `+[ID\|字段名:\|值]` | 固定行 | `+[104\|Hijab Option:\|without Hijab]` | 直接输出固定 gid 行 |
 | `+[ID\|字段:\|[JKey]]` | 带占位符固定行 | `+[170\|Color:\|[Color]]` | 用 J 列 Color 值替换占位符 |
-| `[字段]` | 字段映射 | `[Hair Color]` | 把 J 列 Hair Color 值映射到属性表对应 ID |
+| `[字段]` | 字段映射 | `[Hair Color]` | J 列值映射到对应 ID |
 | `? [条件], +[...]` | 条件固定行 | `? [Gender:Woman],+[104\|...]` | 满足条件才输出 |
 | `? [A] & [B], ...` | 多条件 AND | `? [Gender:Woman]&[Age:Young],...` | 同时满足才执行 |
 | `[字段1:值]=[ID]` | 条件路由 | `? [Gender:Woman],[Age:Young\|Senior]=[128\|126]` | 多值一一映射 |
 | `!key` | 忽略字段 | `!Style` | 不输出该字段的隐式映射 |
-| `#` | 注释 | `# 这是注释` | 不解析 |
+| `#` | 注释 | `# 注释` | 不解析 |
 
-### 隐式映射
-只要 J 列字段在属性表中能找到，**即使 callie定制项翻译规则列没写 `[字段]`**，引擎也会自动补 ID 输出。只有专属字段或需要特殊覆盖时才用手写规则。
+### 四、隐式映射
+只要 J 列字段在属性表中能找到，**即使规则列没写 `[字段]`**，引擎也会自动补 ID 输出。只有专属字段或需特殊覆盖时才手写规则。
 
-### 标准化规则（阶段 0，写入「标准化规则」列）
-J 列（临时列）格式常不一致（组合字段、字段名多余、重复字段、空格/大小写杂质），会在「规则执行之前」先做标准化清洗，提升匹配准确率。
-
-**语法**（单单元格内换行写多条，每条以 `rule|` 开头，行尾可带 `;`）：
+### 五、标准化规则（阶段 0）
+J 列格式常不一致，会在规则执行前先做清洗，提升匹配率。写在「标准化规则」列，多条以 `rule|` 开头、行尾可带 `;`：
 ```
 rule|原始行|目标行1|目标行2|...;
 ```
-- **原始行**：J 列中某行的整行精确内容（匹配前自动 `strip()`，所以首尾空格不影响）；
-- **目标行 1..N**：标准化后展开成的一到多行；目标行留空（`rule|原始行|`）表示**删除该行**；
-- 原始行/目标行**不得含 `|`**（用作分隔符）；
-- 执行：**单轮、非链式、按书写顺序**；一条原始行命中第一条能匹配的规则后即替换，不再参与后续匹配；未匹配行原样保留。
+- 原始行：J 列某行整行精确内容（匹配前自动 `strip()`）；
+- 目标行：展开成的一到多行；目标行留空（`rule|原始行|`）表示**删除该行**；
+- 原始行/目标行**不得含 `|`**；按书写顺序、单轮非链式；未匹配行原样保留。
 
 **通配符**（原始行含 `*` 时启用）：
 ```
 rule|Hairstyle:*-Hairstyle-*|Hair Color:$1|Hairstyle:Hairstyle-$2;
 ```
-- `*` 匹配任意内容（贪婪），目标行可用 `$1`、`$2`… 引用对应的 `*` 捕获组；
-- 上例把合并字段 `Hairstyle:Deepest Blue Black-Hairstyle-2` 拆成 `Hair Color:Deepest Blue Black` + `Hairstyle:Hairstyle-2`，**一条规则覆盖所有发色/发型**，无需逐个枚举；
-- 精确规则（无 `*`）优先于通配规则匹配；原始行含 `*` 才会走通配。
+- `*` 贪婪匹配任意内容，`$1`/`$2` 引用捕获组；
+- 上例把 `Hairstyle:Deepest Blue Black-Hairstyle-2` 拆成 `Hair Color:Deepest Blue Black` + `Hairstyle:Hairstyle-2`，**一条规则覆盖所有发色**；
+- 精确规则优先于通配；原始行含 `*` 才走通配。
 
-**完整示例（PL251368）**
+**示例（PL251368）**
 ```
 rule|Skin Tone:Young 1|Age:Young|Skin Tone:1;
 rule|Beard Color - Style:Dark Brown-8|Beard Color:Dark Brown|Beard Style:8;
 ```
-第一行把 `Skin Tone:Young 1` 拆成 `Age:Young` + `Skin Tone:1`；第二行把合并字段 `Beard Color - Style:Dark Brown-8` 拆成两个独立字段。标准化后的 J 再交给上方翻译规则处理。
 
-### 单性别产品（订单 J 无 Gender 字段）
-有些产品属性表里有男女两套模板，但**只做其中一个性别**（如只做女性），此时订单 J 列不会出现 `Gender` 字段。直接写 `@template: Gender` 会因读不到值而失效（跨模板字段输出字面 `template|`）。
+### 六、单性别产品写法（订单 J 无 Gender）
+属性表有男女两套模板但只做其一（如只做女性），订单 J 无 `Gender` 字段。直接写 `@template: Gender` 会失效（跨模板字段输出字面 `template|`）。
 
-**正确写法**：`@template` 加缺省值 + `+[Gender:...]` 固定字段两行配合：
+正确写法——`@template` 加缺省值 + 固定字段两行配合：
 ```text
-@template: Gender = Woman     # 等号后=缺省模板：J 无 Gender 时默认按女性解析 gid
-+[Gender:Woman]               # 固定字段：①输出 100|Gender:|Woman 行 ②让下方 ? [Gender:Woman] 守卫读到值
-? [Gender:Woman],[Hair Color:9色]=[108~116];   # 发色→发型路由（守卫靠上面固定字段注入的 Gender）
+@template: Gender = Woman     # 缺省模板：J 无 Gender 时按女性解析 gid
++[Gender:Woman]               # ①输出 100|Gender:|Woman ②让下方 ? [Gender:Woman] 守卫读到值
+? [Gender:Woman],[Hair Color:9色]=[108~116];   # 发色→发型路由（守卫靠上面注入的 Gender）
 [Hair Color];
 ```
-> 两行缺一不可：`@template = Woman` 只解决「字段 gid 解析」；`? [Gender:Woman]` 路由守卫仍需 `+[Gender:Woman]` 把值塞进条件才能触发。若将来订单 J 里真的出现 `Gender` 字段，会自动覆盖缺省值、走对应模板。
+> 两行缺一不可：`@template: Gender = Woman` 只解决「字段 gid 解析」；`? [Gender:Woman]` 守卫仍需 `+[Gender:Woman]` 把值塞进条件才能触发。若将来 J 出现 `Gender`，会自动覆盖缺省。
 
-### 完整示例（PL251368，每行带 `#` 注释解释含义）
+### 七、完整示例（PL251368，带注释）
 ```text
-@template: Gender                    # 按 Gender 切换男/女属性表模板，决定各字段用哪套 gid
+@template: Gender                    # 按 Gender 切换男女模板，决定各字段用哪套 gid
 
-# —— 样式与背景：条件固定行，命中即输出固定 gid 行（不是「字段=值」映射）——
-? [Style:Vertical],+[1|:10001|];    # 客人选 Vertical  → 输出 1|…|10001
-? [Style:Horizontal],+[1|:10002|];  # 客人选 Horizontal → 输出 1|…|10002
-? [Background Style:Pencil],+[165|:1650001|];   # 选 Pencil 背景 → 165|…|1650001
-? [Background Style:Crayon],+[165|:1650002|];   # 选 Crayon 背景 → 165|…|1650002
-? [Background Style:Crayon],+[170|Color:|[Color]];  # Crayon 时还要带颜色：取 J 列 Color 值填入 170|Color:|<值>
+# 样式与背景：条件固定行，命中即输出固定 gid 行
+? [Style:Vertical],+[1|:10001|];    # 选 Vertical → 输出 1|…|10001
+? [Style:Horizontal],+[1|:10002|];  # 选 Horizontal → 输出 1|…|10002
+? [Background Style:Pencil],+[165|:1650001|];   # Pencil 背景 → 165|…|1650001
+? [Background Style:Crayon],+[165|:1650002|];   # Crayon 背景 → 165|…|1650002
+? [Background Style:Crayon],+[170|Color:|[Color]];  # Crayon 还要带颜色：取 J 列 Color 填入 170|Color:|<值>
 
-# —— 年龄路由：同一字段在多 gid 间切换，属性表没有「值→gid」标记，必须手写 ——
-? [Gender:Woman], [Age:Young|Age:Senior]=[128|126];  # 女+年轻→皮肤 128，女+年长→皮肤 126
-? [Gender:Woman], [Age:Young|Age:Senior]=[125|124];  # 女+年轻→眼睛 125，女+年长→眼睛 124
-? [Gender:Man],   [Age:Young|Age:Senior]=[163|164];  # 男+年轻→皮肤 163，男+年长→皮肤 164
-? [Gender:Man],   [Age:Young|Age:Senior]=[159|160];  # 男+年轻→眼睛 159，男+年长→眼睛 160
+# 年龄路由：同字段在多 gid 间切换，属性表无「值→gid」标记，必须手写
+? [Gender:Woman], [Age:Young|Age:Senior]=[128|126];  # 女+年轻→皮肤128，女+年长→皮肤126
+? [Gender:Woman], [Age:Young|Age:Senior]=[125|124];  # 女+年轻→眼睛125，女+年长→眼睛124
+? [Gender:Man],   [Age:Young|Age:Senior]=[163|164];  # 男+年轻→皮肤163，男+年长→皮肤164
+? [Gender:Man],   [Age:Young|Age:Senior]=[159|160];  # 男+年轻→眼睛159，男+年长→眼睛160
 
-[Hair Color];   # 裸字段映射：自动把 J 列 Hair Color 值映射到对应 gid（男/女套由 @template 决定）
+[Hair Color];   # 裸字段映射：J 列值自动映射到对应 gid（男/女由 @template 决定）
 
-# —— 发色路由：不同性别发色对应不同发型 gid（同属「模板内多 gid」，必须手写）——
-? [Gender:Woman], [Hair Color:Black|Hair Color:Dark Brown|Hair Color:Light Blonde|Hair Color:Silver]=[107|108|110|115];  # 女：黑→107 深棕→108 浅金→110 银→115
-? [Gender:Man],   [Hair Color:Black|Hair Color:Dark Brown|Hair Color:Light Blonde|Hair Color:Silver]=[133|134|136|140];  # 男：黑→133 深棕→134 浅金→136 银→140
+# 发色路由：不同性别发色对应不同发型 gid，必须手写
+? [Gender:Woman], [Hair Color:Black|Hair Color:Dark Brown|Hair Color:Light Blonde|Hair Color:Silver]=[107|108|110|115];
+? [Gender:Man],   [Hair Color:Black|Hair Color:Dark Brown|Hair Color:Light Blonde|Hair Color:Silver]=[133|134|136|140];
 
-+[Facial Expression:Open Eyes];   # 固定字段：所有人统一 Open Eyes（自动查属性表补 ID，不分男女）
-? [Gender:Woman],+[104|Hijab Option:|without Hijab];   # 专属字段：仅女性输出 Hijab Option（男无此字段，故带 Gender 守卫）
++[Facial Expression:Open Eyes];   # 固定字段：统一 Open Eyes（不分男女）
+? [Gender:Woman],+[104|Hijab Option:|without Hijab];   # 专属字段：仅女性输出
 ```
 
-### J 列字段拆分规则（以 PL251368 为例）
-部分 SKU 在亚马逊 J 列会把「颜色 + 样式」合并成一个字段（如 `Beard Color - Style:Dark Brown-8`），但规则是按 **`Beard Color` 和 `Beard Style` 两个独立字段**设计的，引擎无法直接识别合并字段。
+### 八、合并字段处理（以 Beard Color - Style 为例）
+J 列把「颜色 + 样式」合并成一个字段（如 `Beard Color - Style:Dark Brown-8`），规则按独立 `Beard Color`/`Beard Style` 设计。推荐用**标准化规则**拆开：
+```text
+rule|Beard Color - Style:Dark Brown-8|Beard Color:Dark Brown|Beard Style:8;
+```
+要领：**减号前=颜色→`Beard Color:`；减号后=样式号→`Beard Style:`**，两个都要拆。颜色须是规则已覆盖的取值（如 `Black/Dark Brown/Light Blonde/Silver`），否则路由不触发、只出颜色行。漏拆会在导出报告报 `部分未匹配`。
 
-**手动拆分方式**（在 J 列把该合并字段拆成两行）：
-| 原始 J 字段 | 拆成 |
-|------|------|
-| `Beard Color - Style:Dark Brown-8` | `Beard Color:Dark Brown` + `Beard Style:8` |
-| `Beard Color - Style:Black-3` | `Beard Color:Black` + `Beard Style:3` |
-
-即：**减号前 = 颜色 → `Beard Color:`；减号后 = 样式号 → `Beard Style:`**。
-
-⚠️ 注意：
-1. **两个都得拆**：只拆颜色不拆样式会丢样式号（只出 `142|Beard Color:|xxx` 而无样式 gid）。
-2. **颜色必须是规则已覆盖的 4 个值**：`Black / Dark Brown / Light Blonde / Silver`。若出现规则没列的颜色（如 `Brown`、`Blonde`、`Ginger`），路由不触发，只会出颜色行而无样式行——需先在 callie定制项翻译规则列里补上对应颜色。
-3. 漏拆的合并字段会在导出报告里报 `部分未匹配: Beard Color - Style`，拆干净后即消失。
-
-> `#` 开头的行为注释，引擎解析时会自动忽略；上面示例里的注释只是给人看的说明，你抄规则时可以整行删掉。
+### 九、常见问题
+- **AW/AX/AY 为空？** 这两列来自模板「calie商品ID和商品版本」列。该列未填 → 三列留空（AZ 仍可生成）。请在该 SKU 行填 callie 商品 id / 版本后重新导出。
+- **订单 SKU 对不上？** 模板按父 SKU（如 CAPS…）建，真实亚马逊订单可能是子 SKU（如 CZY…）。SKU 不一致会导致 AZ 与 AW/AX/AY 都不生成——请确保订单 SKU 与模板 SKU 一致，或联系技术补充子 SKU 别名。
+- **出现 `template|` 字样？** 跨模板字段（如发色）找不到模板，通常是 `@template` 没配缺省值且订单缺 Gender，见「六」。
 """
 
 

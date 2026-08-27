@@ -930,6 +930,22 @@ def _norm_sku(sku):
     return str(sku or "").strip().lower()
 
 
+# 订单里常见的「父 SKU」列别名：模板按父 SKU（如 CAPS…）建，
+# 但真实亚马逊订单主 SKU 列（如 CZY…）常是子 SKU，导致匹配不上。
+# 这些列的值通常是父 SKU，可作为兜底匹配键。
+_FALLBACK_SKU_ALIASES = ("亚马逊sku", "父sku", "amazonsku", "parentsku", "amazon sku", "parent sku")
+
+
+def _detect_fallback_sku_cols(df):
+    """从订单 DataFrame 自动找出可作为「父 SKU」兜底的列（按表头名模糊匹配）。"""
+    cols = []
+    for c in (df.columns if hasattr(df, "columns") else []):
+        cl = str(c).strip().lower().replace(" ", "")
+        if any(a.replace(" ", "") in cl for a in _FALLBACK_SKU_ALIASES):
+            cols.append(c)
+    return cols
+
+
 def build_callie_product_map(template_path):
     """读取翻译模板，返回 {sku: {"id":..., "version":...}}（仅含 G 列非空的 SKU）。
 
@@ -986,6 +1002,8 @@ def process_orders(df, sku_cfgs, callie_product_map=None,
     _cp_map = {_norm_sku(k): v for k, v in callie_product_map.items()}
     errors = []
     _warned_no_product = set()
+    # 自动探测「父 SKU」兜底列（如 亚马逊SKU / 父SKU），缓解子 SKU（CZY…）与父 SKU（CAPS…）对不上的老问题
+    _fallback_cols = _detect_fallback_sku_cols(result)
     for idx, row in result.iterrows():
         sku = str(row.get(sku_col, "") or "").strip()
         j = str(row.get(j_col, "") or "").strip()
@@ -995,6 +1013,22 @@ def process_orders(df, sku_cfgs, callie_product_map=None,
         sku_n = _norm_sku(sku)
         cfg = _sku_cfgs.get(sku_n)
         cp = _cp_map.get(sku_n)
+        matched_via = sku_n
+        # 主 SKU 列（多为子 SKU）未命中 → 依次尝试父 SKU 兜底列的值匹配模板
+        if (cfg is None or cp is None) and _fallback_cols:
+            for fcol in _fallback_cols:
+                fv = str(row.get(fcol, "") or "").strip()
+                if not fv:
+                    continue
+                fn = _norm_sku(fv)
+                if cfg is None:
+                    cfg = _sku_cfgs.get(fn)
+                if cp is None:
+                    cp = _cp_map.get(fn)
+                if cfg is not None or cp is not None:
+                    matched_via = fn
+                if cfg is not None and cp is not None:
+                    break
 
         # ── callie 商品信息三列（AW=参考callie站点 / AX=calie商品ID / AY=callie商品版本）──
         # 三列均来自翻译模板 G 列：只有该 SKU 在模板里配了 callie 商品信息，才填充 AW=callie / AX / AY；
@@ -1003,17 +1037,19 @@ def process_orders(df, sku_cfgs, callie_product_map=None,
             result.at[idx, site_col] = "callie"
             result.at[idx, id_col] = cp.get("id") or ""
             result.at[idx, ver_col] = cp.get("version") or ""
-        elif cfg is not None and not sku_n in _warned_no_product:
+        elif cfg is not None and matched_via not in _warned_no_product:
             # AZ 能生成但没配商品信息 → 明确提示，避免 AW/AX/AY「随机留空」却看不到原因
-            _warned_no_product.add(sku_n)
+            _warned_no_product.add(matched_via)
             errors.append({"行号": "", "SKU": sku, "状态": "无商品信息",
-                           "说明": "翻译模板「calie商品ID和商品版本」列未配该 SKU，AW/AX/AY 留空"})
+                           "说明": f"翻译模板「calie商品ID和商品版本」列未配 {matched_via!r}，AW/AX/AY 留空"})
 
         # ── callie 定制项（AZ / az_col）：来自 D 列规则编译 ──
         if cfg is None:
             if cp is None:
-                errors.append({"行号": line_no, "SKU": sku, "状态": "未配置",
-                               "说明": "翻译模板无此 SKU 的 callie 配置"})
+                note = "翻译模板无此 SKU 的 callie 配置"
+                if _fallback_cols:
+                    note += f"（已尝试父SKU兜底列 {_fallback_cols}，仍无匹配）"
+                errors.append({"行号": line_no, "SKU": sku, "状态": "未配置", "说明": note})
             continue
         # ⚠️ 顺序要紧：先报「配置错误」，再判 rule 是否存在。
         # 否则规则编译失败（rule=None + error 非空）会被「无 rule 就静默跳过」吞掉，
