@@ -84,10 +84,25 @@ def compile_attribute(xlsx_path):
     ws = wb["data"] if "data" in wb.sheetnames else wb.active
     rows = list(ws.iter_rows(values_only=True))
 
+    header = rows[0] if rows else []
+    # 定位「定制图id」列（callie 商品id 来源，AX 列要填的值）。
+    # callie 后台导出的属性表里这一列通常全表唯一，取首个非空值即可。
+    pid_col = None
+    for i, h in enumerate(header):
+        if h is not None and "定制图id" in str(h):
+            pid_col = i
+            break
+
     groups = []
     by_name = OrderedDict()
+    product_id = None
 
     for r in rows[1:]:
+        # 收集 callie 商品id（定制图id）
+        if product_id is None and pid_col is not None and pid_col < len(r):
+            v = r[pid_col]
+            if v not in (None, ""):
+                product_id = str(v).strip()
         if len(r) < 7 or r[3] is None:
             continue
         gid = r[3]
@@ -106,7 +121,10 @@ def compile_attribute(xlsx_path):
         if opt is not None and str(opt).strip():
             rec["opts"].append(str(opt).strip())
 
-    return {"groups": groups, "groups_by_name": by_name}
+    result = {"groups": groups, "groups_by_name": by_name}
+    if product_id:
+        result["product_id"] = product_id
+    return result
 
 
 def save_attribute_config(xlsx_path, json_path):

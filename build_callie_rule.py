@@ -946,12 +946,16 @@ def _detect_fallback_sku_cols(df):
     return cols
 
 
-def build_callie_product_map(template_path):
-    """读取翻译模板，返回 {sku: {"id":..., "version":...}}（仅含 G 列非空的 SKU）。
+def build_callie_product_map(template_path, sku_dir=None):
+    """读取翻译模板，返回 {sku: {"id":..., "version":...}}（供填充 AW/AX/AY）。
 
-    与 read_template 解耦：这里扫描整张表的所有 SKU（即使该 SKU 没有 callie 定制项规则），
-    只要 G 列（calie商品ID和商品版本）非空就收录，供 B 系统导出时填充
-    AW(参考callie站点)/AX(calie商品ID)/AY(callie商品版本) 三列。
+    数据来源（按优先级合并）：
+      1) 翻译模板 G 列（calie商品ID和商品版本）—— 手填兜底；version（商品版本）仅此一处提供。
+      2) 已入库属性表（callie_sku_configs/<SKU>/attribute_config.json）的 product_id
+         —— 即 callie 后台导出的「定制图id」，是 callie 商品id 的权威来源。
+            上传属性表后 AX 即自动可填，无需再手填模板 G 列；属性表优先于模板 G 列。
+
+    AW(参考callie站点)/AX(calie商品ID)/AY(callie商品版本) 三列由 process_orders 据此填充。
     """
     import openpyxl
     wb = openpyxl.load_workbook(template_path, data_only=True, read_only=True)
@@ -976,7 +980,27 @@ def build_callie_product_map(template_path):
             continue
         cid, cver = parse_callie_product(g)
         if cid or cver:
-            result[_norm_sku(sku)] = {"id": cid, "version": cver}
+            result[_norm_sku(sku)] = {"id": cid or "", "version": cver or ""}
+
+    # 合并已入库属性表的 定制图id（callie 商品id；属性表优先于模板 G 列）
+    if sku_dir and os.path.isdir(sku_dir):
+        for sku in os.listdir(sku_dir):
+            cfgp = os.path.join(sku_dir, sku, "attribute_config.json")
+            if not os.path.isfile(cfgp):
+                continue
+            try:
+                d = json.load(open(cfgp, encoding="utf-8"))
+            except Exception:
+                continue
+            pid = (str(d.get("product_id") or "").strip())
+            if not pid:
+                continue
+            k = _norm_sku(sku)
+            if k not in result:
+                result[k] = {"id": pid, "version": ""}
+            else:
+                # 属性表是 callie 后台权威数据，定制图id 覆盖模板 G 列的 id
+                result[k]["id"] = pid
     return result
 
 

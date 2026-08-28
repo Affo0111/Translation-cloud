@@ -1351,7 +1351,8 @@ with bcol3, _step_card("步骤3：导出表格"):
                     template = bcr.read_template(tmpl_path)
 
                     # 翻译模板「calie商品ID和商品版本」列映射：{sku: {id, version}}（供填充 AW/AX/AY）
-                    callie_product_map = bcr.build_callie_product_map(tmpl_path)
+                    # 同时并入已入库属性表的 定制图id（callie 商品id 权威来源）
+                    callie_product_map = bcr.build_callie_product_map(tmpl_path, sku_dir=CALLIE_SKU_DIR)
 
                     # 属性表来源：复用已入库的（callie_sku_configs/<SKU>/attribute_config.json）
                     attr_sources = {}
