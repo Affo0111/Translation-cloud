@@ -188,28 +188,6 @@ def parse_e_column(e_text):
     return cg.parse_j(e_text)
 
 
-def parse_f_column(f_text):
-    """解析 F 列 AZ 示例 → 有序 [(kind, id, label, value), ...]。
-
-    kind ∈ {"fixed_line", "mapped"}。格式约定：
-      固定行：ID|:literal         （label 为空）
-      字段行：ID|label:|value     （含模板，如 ID|Name(Black):|Damary）
-    """
-    lines = []
-    for line in str(f_text).splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        id_part, rest = line.split("|", 1)
-        if rest.startswith(":"):
-            lines.append(("fixed_line", id_part, "", ""))
-        else:
-            label_part, value = rest.split("|", 1)
-            label = label_part.rstrip(":")
-            lines.append(("mapped", id_part, label, value))
-    return lines
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 3) 属性表辅助（反推 conditional_routing 的字段名）
 # ─────────────────────────────────────────────────────────────────────────────

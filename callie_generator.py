@@ -952,46 +952,6 @@ def generate_callie_dispatch(j_text, sku_cfg, collect_unmatched=False):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 便捷：从 attribute.xlsx + rule.json 直接构建单 SKU 配置
-# ─────────────────────────────────────────────────────────────────────────────
-
-def build_sku_config(attribute_source, rule):
-    """
-    attribute_source: attribute.xlsx 路径，或已编译的 attribute_config.json 路径。
-    rule: rule.json 路径 或 已加载的 dict。
-    返回运行时配置。
-    """
-    if isinstance(rule, str):
-        rule = load_rule_config(rule)
-    if attribute_source.endswith(".json"):
-        with open(attribute_source, encoding="utf-8") as f:
-            attr = json.load(f)
-    else:
-        attr = compile_attribute(attribute_source)
-    return build_runtime_config(attr, rule)
-
-
-DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "callie_config.json")
-
-
-def generate_callie_default(j_text, json_path=DEFAULT_CONFIG_PATH):
-    """便捷封装：直接吃一份已合并好的配置 JSON（如有需要）。"""
-    with open(json_path, encoding="utf-8") as f:
-        cfg = json.load(f)
-    return generate_callie(j_text, cfg)
-
-
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        out = save_attribute_config(sys.argv[1], DEFAULT_CONFIG_PATH.replace(".json", "_attr.json"))
-        print("属性配置已写入:", DEFAULT_CONFIG_PATH.replace(".json", "_attr.json"))
-        print("属性组数量:", len(out["groups"]))
-    else:
-        print("用法: python callie_generator.py <attribute.xlsx>")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # J 列标准化前置系统（B 系统「阶段 0」）
 # ─────────────────────────────────────────────────────────────────────────────
 #
