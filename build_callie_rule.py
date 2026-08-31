@@ -947,13 +947,14 @@ def _detect_fallback_sku_cols(df):
 
 
 def build_callie_product_map(template_path, sku_dir=None):
-    """读取翻译模板，返回 {sku: {"id":..., "version":...}}（供填充 AW/AX/AY）。
+    """读取翻译模板，返回 {sku: {"id":..., "version":..., "src":...}}（供填充 AW/AX/AY）。
 
-    数据来源（按优先级合并）：
-      1) 翻译模板 G 列（calie商品ID和商品版本）—— 手填兜底；version（商品版本）仅此一处提供。
+    数据来源（按优先级合并，模板 G 列优先）：
+      1) 翻译模板 G 列（calie商品ID和商品版本）—— 用户在模板里手填的值，权威优先；
+         version（商品版本）仅此一处提供。src="template"。
       2) 已入库属性表（callie_sku_configs/<SKU>/attribute_config.json）的 product_id
-         —— 即 callie 后台导出的「定制图id」，是 callie 商品id 的权威来源。
-            上传属性表后 AX 即自动可填，无需再手填模板 G 列；属性表优先于模板 G 列。
+         —— 即 callie 后台导出的「定制图id」，**仅当模板 G 列未填 callie商品id 时才作兜底**。
+         src="attr"。这样不会覆盖用户在模板里明确写的值（例如测试模板写的 23973）。
 
     AW(参考callie站点)/AX(calie商品ID)/AY(callie商品版本) 三列由 process_orders 据此填充。
     """
@@ -980,9 +981,11 @@ def build_callie_product_map(template_path, sku_dir=None):
             continue
         cid, cver = parse_callie_product(g)
         if cid or cver:
-            result[_norm_sku(sku)] = {"id": cid or "", "version": cver or ""}
+            result[_norm_sku(sku)] = {"id": cid or "", "version": cver or "", "src": "template"}
 
-    # 合并已入库属性表的 定制图id（callie 商品id；属性表优先于模板 G 列）
+    # 合并已入库属性表的 定制图id（callie 后台导出的「定制图id」）作为【兜底】：
+    # 仅当模板 G 列未填 callie商品id 时才使用，以免覆盖用户在模板里手填的 callie商品id
+    # （例如测试模板写的 23973）。模板 G 列 > 属性表 定制图id。
     if sku_dir and os.path.isdir(sku_dir):
         for sku in os.listdir(sku_dir):
             cfgp = os.path.join(sku_dir, sku, "attribute_config.json")
@@ -997,10 +1000,13 @@ def build_callie_product_map(template_path, sku_dir=None):
                 continue
             k = _norm_sku(sku)
             if k not in result:
-                result[k] = {"id": pid, "version": ""}
-            else:
-                # 属性表是 callie 后台权威数据，定制图id 覆盖模板 G 列的 id
+                # 模板里完全没有该 SKU 的商品信息 → 用属性表兜底，并标记来源
+                result[k] = {"id": pid, "version": "", "src": "attr"}
+            elif not result[k].get("id"):
+                # 模板 G 列有行但 id 为空 → 用属性表 定制图id 兜底
                 result[k]["id"] = pid
+                result[k]["src"] = "attr"
+            # 否则（模板 G 列已填 id）→ 保留模板值（src 仍为 "template"）
     return result
 
 
@@ -1026,6 +1032,7 @@ def process_orders(df, sku_cfgs, callie_product_map=None,
     _cp_map = {_norm_sku(k): v for k, v in callie_product_map.items()}
     errors = []
     _warned_no_product = set()
+    _warned_attr_fallback = set()
     # 自动探测「父 SKU」兜底列（如 亚马逊SKU / 父SKU），缓解子 SKU（CZY…）与父 SKU（CAPS…）对不上的老问题
     _fallback_cols = _detect_fallback_sku_cols(result)
     for idx, row in result.iterrows():
@@ -1061,6 +1068,13 @@ def process_orders(df, sku_cfgs, callie_product_map=None,
             result.at[idx, site_col] = "callie"
             result.at[idx, id_col] = cp.get("id") or ""
             result.at[idx, ver_col] = cp.get("version") or ""
+            # 来源透明：AX 来自属性表兜底（callie后台「定制图id」）时明确提示，
+            # 避免「不知道这串数字哪来的」式困惑
+            if cp.get("src") == "attr" and matched_via not in _warned_attr_fallback:
+                _warned_attr_fallback.add(matched_via)
+                errors.append({"行号": "", "SKU": sku, "状态": "属性表兜底",
+                               "说明": f"AW/AX/AY 的 callie商品id={cp.get('id')!r} 来自【属性表兜底】"
+                                       f"(callie后台「定制图id」)，模板 G 列未填该 SKU 的 callie商品id"})
         elif cfg is not None and matched_via not in _warned_no_product:
             # AZ 能生成但没配商品信息 → 明确提示，避免 AW/AX/AY「随机留空」却看不到原因
             _warned_no_product.add(matched_via)
