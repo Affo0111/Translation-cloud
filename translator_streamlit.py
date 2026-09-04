@@ -841,7 +841,7 @@ with st.expander("规则草稿生成"):
             f"<b>📝 翻译前定制项</b></div>",
             unsafe_allow_html=True,
         )
-        _b = st.text_area("翻译前定制项", value=st.session_state.get("gen_a_before", ""),
+        _b = st.text_area("翻译前定制项",
                           key="gen_a_before", label_visibility="collapsed",
                           placeholder="（J列样例）")
 
@@ -851,7 +851,7 @@ with st.expander("规则草稿生成"):
             f"<b>📋 翻译后定制项</b></div>",
             unsafe_allow_html=True,
         )
-        _a = st.text_area("翻译后定制项", value=st.session_state.get("gen_a_after", ""),
+        _a = st.text_area("翻译后定制项",
                           key="gen_a_after", label_visibility="collapsed",
                           placeholder="（AZ列样例）")
 
@@ -869,7 +869,7 @@ with st.expander("规则草稿生成"):
             unsafe_allow_html=True,
         )
         _draft_val = st.text_area("翻译模板草稿", value=st.session_state.get("generator_rules", ""),
-                                  key="gen_a_rules", label_visibility="collapsed",
+                                  label_visibility="collapsed",
                                   placeholder="（生成后显示规则草稿）")
 
     # 生成 / 校验按钮并排
@@ -889,7 +889,6 @@ with st.expander("规则草稿生成"):
                     st.error(f"生成失败：{_e}")
     with _btn2:
         if st.button("✅ 校验", key="gen_a_test", use_container_width=True):
-            _draft_val = st.session_state.get("gen_a_rules", "")
             if not _draft_val.strip():
                 st.warning("草稿为空，请先点「生成草稿」")
             else:
