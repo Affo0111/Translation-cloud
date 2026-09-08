@@ -338,11 +338,11 @@ class DeleteRule(Rule):
 class TranslateRule(Rule):
     """
     = 操作符：翻译键名或键值对。
-    格式：=源映射=目标映射
+    格式：[源]=[目标]
     示例：
-        =[Name]=[名字]          → 键翻译（保留值）
-        =[尺寸:L]=[尺寸:大号]    → 键值翻译
-        =[尺寸:L|尺寸:M]=[尺寸:大号|尺寸:中号]  → 并列映射
+        [Name]=[名字]          → 键翻译（保留值）
+        [尺寸:L]=[尺寸:大号]    → 键值翻译
+        [尺寸:L|尺寸:M]=[尺寸:大号|尺寸:中号]  → 并列映射
     """
     mappings: List[Tuple[KeyValueCondition, KeyValueCondition]]
     # 每个元素是 (源条件, 目标条件)，其中目标条件的 value 是新值
@@ -576,11 +576,11 @@ def _parse_delete(escaped: str, original: str) -> DeleteRule:
 
 def _parse_translate(escaped: str, original: str) -> TranslateRule:
     """
-    解析 = 规则：=源=目标
+    解析 = 规则：[源]=[目标]
 
     支持两种格式：
-      =[源]=[目标]  — 目标有 [] 包裹（内部 | 分隔并列映射）
-      =[源]=目标    — 目标无 [] 包裹（单一映射）
+      [源]=[目标]  — 目标有 [] 包裹（内部 | 分隔并列映射）
+      [源]=目标    — 目标无 [] 包裹（单一映射）
     """
     s = escaped[1:].strip()  # 去掉首个 =
     if not s:
@@ -815,8 +815,8 @@ def generate_a_rule_draft(before_text: str, after_text: str) -> str:
 
     定位：系统生成 0.5，运营审核改到 1.0。覆盖机械部分：
       - 删除行   → ![键:值];               （before 有、after 无）
-      - 键翻译   → =[旧键]=[新键];          （值不变、键改名）
-      - 键值翻译 → =[旧键:旧值]=[新键:新值];（键或值变化）
+      - 键翻译   → [旧键]=[新键];          （值不变、键改名）
+      - 键值翻译 → [旧键:旧值]=[新键:新值];（键或值变化）
       - 新增行   → +[整行];                （after 有、before 无，追加到末尾）
     每条规则以 ';' 结尾，对齐手写规范。
 
@@ -855,7 +855,7 @@ def generate_a_rule_draft(before_text: str, after_text: str) -> str:
             a_consumed[mi] = True
             if av == bv:
                 continue  # 未变，无需规则
-            translates.append(f"=[{bk}:{bv}]=[{ak}:{av}];")
+            translates.append(f"[{bk}:{bv}]=[{ak}:{av}];")
             continue
         # 2) 同值匹配（键改名，值不变）→ 键翻译
         mi = -1
@@ -867,7 +867,7 @@ def generate_a_rule_draft(before_text: str, after_text: str) -> str:
         if mi >= 0:
             ak, _av = a[mi][0]
             a_consumed[mi] = True
-            translates.append(f"=[{bk}]=[{ak}];")
+            translates.append(f"[{bk}]=[{ak}];")
             continue
         # 3) 删除
         deletes.append(f"![{bk}:{bv}];" if bv else f"![{br}];")
@@ -1695,7 +1695,7 @@ def main():
 规则语法参考：
     ^[条件] , 后缀          SKU变化（根据条件修改SKU）
     ![条件]                删除定制项中符合条件的行
-    =[源]=[目标]           翻译键名或键值对
+    [源]=[目标]           翻译键名或键值对
     [位置条件] ++ [内容]    在指定位置下方添加新行
     +[内容]                在定制项末尾添加新行
 
