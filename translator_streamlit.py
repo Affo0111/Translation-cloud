@@ -36,6 +36,12 @@ from translator import (
     process_orders_preserve_format,
     _update_xlsx_cells_lightweight,
     _col_idx_to_letter,
+    # 敏感货标记（[敏感货]）
+    SENSITIVE_MARKER,
+    TemplateRules,
+    _strip_sensitive_marker,
+    _is_sensitive_marker_segment,
+    _is_sensitive_sku,
 )
 
 # ── 上传文件工具：识别 Windows 快捷方式（.lnk）────────────────────────
@@ -303,6 +309,7 @@ for key, default in [
     ("orders_df", None), ("orders_name", ""), ("orders_saved", False),
     ("orders_wb", None), ("orders_path", None),
     ("result_path", None), ("stat_modified", 0), ("stat_skipped", 0), ("stat_ac_as", 0),
+    ("stat_sensitive", 0),
     ("stat_callie", 0), ("callie_cfgs", {}), ("template_path", None),
     ("callie_output", []), ("callie_unmatched", []), ("callie_section_count", 0),
     ("exec_errors_list", []), ("processing_done", False),
@@ -387,11 +394,14 @@ def _parse_callie_upload(uploaded):
 
 
 def _convert_to_temp(order_path):
-    """翻译单个订单文件，写入临时结果文件，返回 (out_path, modified, skipped, error_count, ac_as_count)。"""
+    """翻译单个订单文件，写入临时结果文件。
+
+    返回：(out_path, modified, skipped, error_count, ac_as_count, sensitive_count)
+    """
     out_path = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
-    modified, skipped, error_count, ac_as_count = process_orders_preserve_format(
+    modified, skipped, error_count, ac_as_count, sensitive_count = process_orders_preserve_format(
         order_path, out_path, st.session_state.template_rules)
-    return out_path, modified, skipped, error_count, ac_as_count
+    return out_path, modified, skipped, error_count, ac_as_count, sensitive_count
 
 
 def _run_conversion() -> bool:
@@ -401,11 +411,13 @@ def _run_conversion() -> bool:
     _cleanup(st.session_state.result_path)
     _ensure_callie_loaded()
     try:
-        out_path, modified, skipped, error_count, ac_as_count = _convert_to_temp(st.session_state.orders_path)
+        (out_path, modified, skipped, error_count,
+         ac_as_count, sensitive_count) = _convert_to_temp(st.session_state.orders_path)
         st.session_state.result_path = out_path
         st.session_state.stat_modified = modified
         st.session_state.stat_skipped = skipped
         st.session_state.stat_ac_as = ac_as_count
+        st.session_state.stat_sensitive = sensitive_count
         st.session_state.exec_errors_list = (
             [{"来源": "订单执行", "错误类型": "规则执行异常",
               "错误原因": f"共有 {error_count} 行处理异常，详见终端日志"}]
@@ -413,10 +425,16 @@ def _run_conversion() -> bool:
         )
         st.session_state.processing_done = True
         # 自动收录模板规则
+        # 敏感货 SKU 在收录时补回 [敏感货] 标记，避免规则库丢失标记信息
         if modified > 0 and st.session_state.template_rules:
             for sku, rules in st.session_state.template_rules.items():
+                _sku_is_sensitive = _is_sensitive_sku(
+                    st.session_state.template_rules, sku)
                 for r in rules:
-                    _record_template(sku, r.original)
+                    _rule_text = r.original
+                    if _sku_is_sensitive:
+                        _rule_text = f"{_rule_text};[{SENSITIVE_MARKER}]"
+                    _record_template(sku, _rule_text)
         _cleanup(st.session_state.get("_prev_result_path"))
         return True
     except Exception as e:
@@ -590,22 +608,27 @@ def _load_template_with_errors(file_path: str):
         rule_str = str(row[rule_col]).strip() if pd.notna(row[rule_col]) else ""
         excel_row = idx + 2
         if sku and rule_str:
+            # 先摘除 [敏感货] 标记再判断——只写了标记、没有翻译规则的 SKU 是合法的，
+            # 不应被当成「规则解析失败」报出来。
+            clean_rule, _is_sensitive = _strip_sensitive_marker(rule_str)
+            if not clean_rule or not clean_rule.strip():
+                continue
             # 如果 SKU 不在解析结果中（或为空列表），说明解析失败
             rules = parsed.get(sku)
             if rules is None or len(rules) == 0:
-                # 再次调用 parse_rule 获取具体错误信息
+                # 再次调用 parse_rule 获取具体错误信息（用摘除标记后的规则）
                 try:
-                    test = parse_rule(rule_str)
+                    test = parse_rule(clean_rule)
                     if not test:
                         errors.append({
                             "来源": "模板解析", "SKU": sku, "Excel行号": excel_row,
-                            "问题规则": rule_str, "错误类型": "规则解析失败",
+                            "问题规则": clean_rule, "错误类型": "规则解析失败",
                             "错误原因": "规则解析后无有效结果",
                         })
                 except Exception as e:
                     errors.append({
                         "来源": "模板解析", "SKU": sku, "Excel行号": excel_row,
-                        "问题规则": rule_str, "错误类型": "规则解析异常",
+                        "问题规则": clean_rule, "错误类型": "规则解析异常",
                         "错误原因": str(e),
                     })
     return parsed, df, errors, sku_col, rule_col
@@ -628,19 +651,34 @@ def _parse_template_from_df(df: pd.DataFrame):
         )
 
     errors = []
-    parsed = {}
+    parsed = TemplateRules()
     for idx, row in df.iterrows():
         sku = str(row[sku_col]).strip() if pd.notna(row[sku_col]) else ""
         rule_str = str(row[rule_col]).strip() if pd.notna(row[rule_col]) else ""
         excel_row = idx + 2
         if sku and rule_str:
-            rules = parse_rule(rule_str)
+            # 识别并摘除 [敏感货] 标记（标记不参与翻译解析）
+            clean_rule, is_sensitive = _strip_sensitive_marker(rule_str)
+            if is_sensitive:
+                parsed.sensitive_skus.add(sku)
+            if not clean_rule or not clean_rule.strip():
+                # 只有标记、没有翻译规则 → 合法
+                parsed[sku] = []
+                continue
+            rules = parse_rule(clean_rule)
             if rules:
                 parsed[sku] = rules
+            elif is_sensitive:
+                parsed[sku] = []
+                errors.append({
+                    "来源": "模板解析", "SKU": sku, "Excel行号": excel_row,
+                    "问题规则": clean_rule, "错误类型": "规则解析失败",
+                    "错误原因": "除 [敏感货] 外的规则解析后无有效结果",
+                })
             else:
                 errors.append({
                     "来源": "模板解析", "SKU": sku, "Excel行号": excel_row,
-                    "问题规则": rule_str, "错误类型": "规则解析失败",
+                    "问题规则": clean_rule, "错误类型": "规则解析失败",
                     "错误原因": "规则解析后无有效结果",
                 })
         elif sku:
@@ -781,6 +819,23 @@ with col3, _step_card("步骤3：导出表格"):
             st.markdown(f'<div class="stat-box"><div class="number" style="color:{ac_color}">{ac}</div><div class="label">🔧 AC/AS 填充行数</div></div>', unsafe_allow_html=True)
             if ac == 0:
                 st.warning("⚠️ AC/AS 自动填充数为 0！请确认：① 订单文件有 K 列(加急)；② 订单行有 SKU")
+            # ── 敏感货标记统计 ──
+            sn = st.session_state.get("stat_sensitive", 0)
+            _sens_skus = getattr(
+                st.session_state.get("template_rules"), "sensitive_skus", None) or set()
+            sn_color = "#dc2626" if (sn == 0 and _sens_skus) else "#4f46e5"
+            st.markdown(f'<div class="stat-box"><div class="number" style="color:{sn_color}">{sn}</div><div class="label">🚩 敏感货标记行数</div></div>', unsafe_allow_html=True)
+            if _sens_skus and sn == 0:
+                st.warning(
+                    f"⚠️ 模板中有 {len(_sens_skus)} 个 SKU 写了 [敏感货]，"
+                    "但本次没有写入任何标记。请确认：① 订单文件有「客人图片」列；"
+                    "② 订单里确实有这些 SKU 的行。"
+                )
+            elif sn > 0:
+                st.caption(
+                    f"🚩 模板中标记敏感货 SKU {len(_sens_skus)} 个 → "
+                    f"本次命中 {sn} 行，「客人图片」列已写入数字 1"
+                )
             ca = st.session_state.get("callie_section_count", 0)
             ca_color = "#4f46e5" if ca > 0 else "#9ca3af"
             st.markdown(f'<div class="stat-box"><div class="number" style="color:{ca_color}">{ca}</div><div class="label">🎨 callie定制项(独立版块)</div></div>', unsafe_allow_html=True)

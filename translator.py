@@ -911,6 +911,85 @@ def strip_rule_comments(rule_text: str) -> str:
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
+# ║                  敏感货标记（[敏感货]）                                    ║
+# ╚════════════════════════════════════════════════════════════════════════════╝
+#
+# 用法：运营在翻译模板的「翻译模板」列里，为该 SKU 单独写一行 `[敏感货]`
+#       （位置任意，建议写在最下方）。处理订单时，系统会在该订单行
+#       的「客人图片」列写入数字 1，便于后续筛选敏感货订单。
+#
+# 标记本身不参与翻译解析，识别后即被摘除。
+
+#: 敏感货标记关键字
+SENSITIVE_MARKER = "敏感货"
+
+
+def _is_sensitive_marker_segment(segment: str) -> bool:
+    """
+    判断一条子规则片段是否就是敏感货标记。
+
+    容错（运营手写常有这些差异）：
+      - 方括号内外多余空格：`[ 敏感货 ]`、`   [敏感货]   `
+      - 全角方括号：`［敏感货］`（中文输入法下常见）
+      - 全角空格 \\u3000（`\\s+` 在 Unicode 模式下可匹配）
+      - 大小写（中文本身无大小写，兼容可能的别名写法）
+      - 不写方括号的裸写法：`敏感货`
+    """
+    if not segment:
+        return False
+    s = str(segment).strip()
+    if not s:
+        return False
+    # 全角方括号 → 半角，再去掉所有空白（含全角空格）
+    s = s.replace("［", "[").replace("］", "]")
+    s = re.sub(r"\s+", "", s).lower()
+    # 去掉成对方括号
+    if s.startswith("[") and s.endswith("]"):
+        s = s[1:-1]
+    return s == SENSITIVE_MARKER
+
+
+def _strip_sensitive_marker(rule_str: str) -> Tuple[str, bool]:
+    """
+    从规则串中摘除 `[敏感货]` 标记。
+
+    Args:
+        rule_str: 翻译模板列里的原始规则文本
+
+    Returns:
+        (清洗后的规则串, 是否为敏感货)
+        未命中标记时 **原样返回** 传入字符串，避免无谓改写。
+
+    说明：
+      - 拆分口径与 `parse_rule` 第〇步完全一致（`;` / 换行 / `<br>` 都算分隔符）；
+      - 标记可写在任意位置，识别后不参与翻译解析；
+      - 同一 SKU 重复写多个标记只认一次，全部摘除。
+    """
+    if not rule_str:
+        return rule_str, False
+
+    text = str(rule_str)
+    # 与 parse_rule 第〇步一致：统一换行/BR 为 ;
+    normalized = (
+        text.replace("\r\n", ";").replace("\n", ";")
+            .replace("<br>", ";").replace("<BR>", ";")
+    )
+
+    kept: List[str] = []
+    is_sensitive = False
+    for seg in normalized.split(";"):
+        if _is_sensitive_marker_segment(seg):
+            is_sensitive = True
+            continue
+        kept.append(seg)
+
+    if not is_sensitive:
+        return text, False
+    # 被摘除后会留下空段（如 `a;;b`），parse_rule 自身会跳过空段，安全。
+    return ";".join(kept), True
+
+
+# ╔════════════════════════════════════════════════════════════════════════════╗
 # ║                       第六部分：Excel处理                                  ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
@@ -941,12 +1020,57 @@ def _find_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
     return None
 
 
-def load_template(template_path: str) -> dict:
+class TemplateRules(dict):
+    """
+    解析后的模板规则容器：`{SKU: [Rule]}`，额外携带「敏感货」SKU 集合。
+
+    继承 `dict` 是为了对现有调用方**完全零改动**兼容：
+    `template.get(sku)` / `template.items()` / `len(template)` / `in` 行为都不变，
+    无需为一个标记位去改所有下游函数签名。
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        #: 被标记为敏感货的 SKU 集合（元素为已 strip 的 SKU 字符串）
+        self.sensitive_skus: set = set()
+
+    def is_sensitive(self, sku) -> bool:
+        """判断 SKU 是否敏感货（对 None/空值安全）。"""
+        if sku is None:
+            return False
+        return str(sku).strip() in self.sensitive_skus
+
+
+def _is_sensitive_sku(template, sku) -> bool:
+    """
+    从模板容器读取「该 SKU 是否敏感货」。
+
+    兼容普通 dict（无标记信息）——此时一律返回 False，不影响老数据。
+    """
+    if template is None or sku is None:
+        return False
+    checker = getattr(template, "is_sensitive", None)
+    if callable(checker):
+        try:
+            return bool(checker(sku))
+        except Exception:
+            pass
+    sensitive = getattr(template, "sensitive_skus", None) or ()
+    try:
+        return str(sku).strip() in sensitive
+    except TypeError:
+        return False
+
+
+def load_template(template_path: str) -> TemplateRules:
     """
     加载学习模板。
 
-    返回：{SKU: 规则字符串} 的字典。
+    返回：`TemplateRules`，即 `{SKU: [Rule]}` 字典 + `sensitive_skus` 集合。
     如果同一SKU出现多次，使用最后出现的规则。
+
+    「翻译模板」列里单独写的 `[敏感货]` 会被识别为该 SKU 的敏感货标记，
+    并从规则中摘除（不参与翻译解析）。
     """
     df = pd.read_excel(template_path, dtype=str)
 
@@ -979,23 +1103,45 @@ def load_template(template_path: str) -> dict:
             # 同一SKU覆盖（保留最后出现的）
             template[sku] = rule_str
 
-    # 预解析所有规则
-    parsed_template: dict = {}
+    # 预解析所有规则（同时识别 [敏感货] 标记）
+    parsed_template = TemplateRules()
     parse_errors = 0
     for sku, rule_str in template.items():
-        if rule_str:
-            rules = parse_rule(rule_str)
-            if rules:
-                parsed_template[sku] = rules
-            else:
-                parse_errors += 1
-                logger.warning(f"SKU {sku!r} 的规则解析失败，将跳过: {rule_str!r}")
-        else:
+        # ── 先摘除敏感货标记，剩下的才是真正的翻译规则 ──
+        clean_rule, is_sensitive = _strip_sensitive_marker(rule_str)
+        if is_sensitive:
+            parsed_template.sensitive_skus.add(sku)
+            logger.info(
+                f"SKU {sku!r}: 已标记为敏感货"
+                f"（处理订单时将在「客人图片」列写入 1）"
+            )
+
+        if not clean_rule or not clean_rule.strip():
+            # 空规则；或整条规则只有 [敏感货] 标记 → 合法，不算解析失败
             parsed_template[sku] = []
+            continue
+
+        rules = parse_rule(clean_rule)
+        if rules:
+            parsed_template[sku] = rules
+        elif is_sensitive:
+            # 标记之外的规则解析失败：保留敏感货标记，但错误照报不静默
+            parsed_template[sku] = []
+            parse_errors += 1
+            logger.warning(
+                f"SKU {sku!r} 除 [敏感货] 外的规则解析失败（敏感货标记已保留）: "
+                f"{clean_rule!r}"
+            )
+        else:
+            parse_errors += 1
+            logger.warning(f"SKU {sku!r} 的规则解析失败，将跳过: {rule_str!r}")
 
     if parse_errors:
         logger.warning(f"共有 {parse_errors} 条规则解析失败")
-    logger.info(f"成功加载 {len(parsed_template)} 条SKU规则")
+    logger.info(
+        f"成功加载 {len(parsed_template)} 条SKU规则"
+        f"（其中敏感货 {len(parsed_template.sensitive_skus)} 个）"
+    )
 
     return parsed_template
 
@@ -1024,11 +1170,24 @@ def process_orders(df: pd.DataFrame, template: dict) -> pd.DataFrame:
 
     logger.info(f"订单列识别: SKU={sku_col!r}, 定制项={cust_col!r}")
 
+    # 敏感货标记写入目标列：按列名定位，不硬编码列号
+    pic_col = _find_column(
+        df, ["客人图片", "客户图片", "客人图片链接", "customerimage", "customer image"]
+    )
+    if pic_col is None:
+        logger.warning(
+            '未找到「客人图片」列，敏感货标记将被跳过（翻译流程照常执行）'
+        )
+    else:
+        logger.info(f"客人图片列识别: {pic_col!r}")
+
     result = df.copy()
 
     modified_count = 0
     skipped_count = 0
     error_count = 0
+    sensitive_marked = 0
+    sensitive_skipped = 0
 
     for idx, row in result.iterrows():
         sku = str(row[sku_col]).strip() if pd.notna(row[sku_col]) else ""
@@ -1037,6 +1196,14 @@ def process_orders(df: pd.DataFrame, template: dict) -> pd.DataFrame:
         if not sku:
             skipped_count += 1
             continue
+
+        # ── 敏感货标记：即使该 SKU 没有翻译规则也要标记 ──
+        if _is_sensitive_sku(template, sku):
+            if pic_col is not None:
+                result.at[idx, pic_col] = 1
+                sensitive_marked += 1
+            else:
+                sensitive_skipped += 1
 
         rules = template.get(sku)
         if rules is None or len(rules) == 0:
@@ -1055,8 +1222,34 @@ def process_orders(df: pd.DataFrame, template: dict) -> pd.DataFrame:
             logger.error(f"SKU {sku!r}: 处理异常: {e}")
             error_count += 1
 
-    logger.info(f"处理完成: 修改 {modified_count} 行, 跳过 {skipped_count} 行, 错误 {error_count} 行")
+    logger.info(
+        f"处理完成: 修改 {modified_count} 行, 跳过 {skipped_count} 行, "
+        f"错误 {error_count} 行, 敏感货标记 {sensitive_marked} 行"
+        + (f"（{sensitive_skipped} 行因缺少「客人图片」列未标记）" if sensitive_skipped else "")
+    )
+    # 供调用方读取本次统计（不改变返回类型，零破坏）
+    result.attrs["sensitive_marked"] = sensitive_marked
+    result.attrs["sensitive_skipped"] = sensitive_skipped
     return result
+
+
+class NumericCell:
+    """
+    待写入单元格的「数字」包装。
+
+    写盘器默认把所有新值写成共享字符串（`t="s"`，即文本）。
+    敏感货标记要求「客人图片」列写入**数字 1（不是文本 "1"）**，
+    用本类包一层即可让写盘器走数字分支（去掉 t 属性、直接写 <v>1</v>），
+    这样 Excel 里能被数值筛选/求和/条件格式正常识别。
+    """
+
+    __slots__ = ("value",)
+
+    def __init__(self, value):
+        self.value = value
+
+    def __repr__(self) -> str:
+        return f"NumericCell({self.value!r})"
 
 
 def _col_idx_to_letter(idx: int) -> str:
@@ -1132,6 +1325,8 @@ def _update_xlsx_cells_lightweight(
                     if r_id and rels_path in zf.namelist():
                         rels_xml = zf.read(rels_path)
                         rels_root = ET.fromstring(rels_xml)
+                        # 注意：本循环必须留在上面的 if 内——若 r_id 为空或 rels 缺失，
+                        # rels_root 未定义，提到外面会抛 NameError。
                         for rel in rels_root:
                             if rel.get('Id') == r_id:
                                 target = rel.get('Target', '')
@@ -1210,7 +1405,11 @@ def _update_xlsx_cells_lightweight(
                     cell_map[col_letter] = c_elem
 
             for col_letter, new_value in col_updates.items():
-                new_value = str(new_value) if new_value is not None else ''
+                # 数字单元格（如敏感货标记的 1）：不参与共享字符串
+                is_numeric = isinstance(new_value, NumericCell)
+                numeric_value = new_value.value if is_numeric else None
+                if not is_numeric:
+                    new_value = str(new_value) if new_value is not None else ''
 
                 if col_letter in cell_map:
                     c_elem = cell_map[col_letter]
@@ -1222,6 +1421,16 @@ def _update_xlsx_cells_lightweight(
                     t_attr = ''
                     cell_map[col_letter] = c_elem
 
+                if is_numeric:
+                    # ── 数字分支：清掉 t 属性（默认即 n）与旧子元素，写 <v>数字</v> ──
+                    for child in list(c_elem):
+                        if child.tag in (_tag('v'), _tag('f'), _tag('is')):
+                            c_elem.remove(child)
+                    if 't' in c_elem.attrib:
+                        del c_elem.attrib['t']
+                    v_elem = ET.SubElement(c_elem, _tag('v'))
+                    v_elem.text = str(numeric_value)
+                    continue
                 if t_attr == 's':
                     # 共享字符串：追加到 SST，更新 <v> 索引
                     sst_entries.append(new_value)
@@ -1304,7 +1513,11 @@ def process_orders_preserve_format(orders_path, output_path, template):
 
     流程：pandas 读取数据 → 处理 → 解压到临时目录 → 修改 sheet1.xml → 重新打包。
 
-    返回：(modified_count, skipped_count, error_count)
+    敏感货标记与翻译在同一趟循环内完成，并合并进同一批 XML 更新：
+    被标记 `[敏感货]` 的 SKU，其订单行「客人图片」列写数字 1（NumericCell），
+    不额外打开/保存文件。
+
+    返回：(modified_count, skipped_count, error_count, ac_as_filled, sensitive_marked)
     """
     import zipfile
     import xml.etree.ElementTree as ET
@@ -1366,6 +1579,22 @@ def process_orders_preserve_format(orders_path, output_path, template):
         delivery_col_letter = 'AS'
         logger.info(f"时效列: 固定位置 {delivery_col_letter}")
 
+    # ── 客人图片列：敏感货标记的写入目标（按列名定位，不硬编码列号）──
+    # 不同订单模板列结构不同（如 pet6.xls 在 G 列、CG11.7.xls 在 I 列），
+    # 所以必须按表头名找；找不到只跳过标记，不影响翻译流程。
+    pic_col_name = _find_column(
+        df, ["客人图片", "客户图片", "客人图片链接", "customerimage", "customer image"]
+    )
+    if pic_col_name:
+        pic_col_letter = _col_idx_to_letter(list(df.columns).index(pic_col_name) + 1)
+        logger.info(f"客人图片列识别: {pic_col_name!r} -> {pic_col_letter}")
+    else:
+        pic_col_letter = None
+        logger.warning(
+            f'未找到「客人图片」列，敏感货标记将被跳过（翻译流程照常执行）。'
+            f'当前订单列: {list(df.columns)}'
+        )
+
     logger.info(f"DataFrame: {len(df)} 行, {len(df.columns)} 列")
 
     # ── 第2步：遍历处理，收集变更 ──
@@ -1375,6 +1604,8 @@ def process_orders_preserve_format(orders_path, output_path, template):
     updates = {}  # {excel_row_1based: {col_letter: new_value}}
 
     ac_as_filled = 0  # 统计 AC/AS 填充次数
+    sensitive_marked = 0    # 统计敏感货标记成功行数
+    sensitive_skipped = 0   # 统计敏感货因缺列未标记行数
     ac_as_map = {}     # {excel_row: {col_letter: value}} — 供 openpyxl 覆写
     for idx, row in df.iterrows():
         excel_row = idx + 2  # +2: 0-based pandas index → 1-based Excel row
@@ -1401,6 +1632,18 @@ def process_orders_preserve_format(orders_path, output_path, template):
             ac_as_filled += 1
             ac_as_map.setdefault(excel_row, {})[channel_col_letter] = ch_val
             ac_as_map.setdefault(excel_row, {})[delivery_col_letter] = dv_val
+
+        # ── 敏感货标记：命中则在「客人图片」列写数字 1 ──
+        # 注意：即使该 SKU 没有翻译规则，也要正常标记（标记与翻译互不依赖）。
+        if _is_sensitive_sku(template, sku):
+            if pic_col_letter:
+                row_updates[pic_col_letter] = NumericCell(1)
+                sensitive_marked += 1
+            else:
+                sensitive_skipped += 1
+                logger.debug(
+                    f"SKU {sku!r} 为敏感货，但订单缺少「客人图片」列，已跳过标记"
+                )
 
         # ── 翻译逻辑（只对匹配规则的行执行） ──
         customization = str(row[cust_col_name]) if pd.notna(row[cust_col_name]) else ""
@@ -1479,7 +1722,16 @@ def process_orders_preserve_format(orders_path, output_path, template):
             shared_path = os.path.join(tmpdir, 'xl', 'sharedStrings.xml')
             shared_strings = []
             shared_count_attr = '0'
-            if os.path.exists(shared_path):
+            # ── 是否沿用共享字符串：跟随原文件的约定 ──
+            # 部分来源（pandas / 某些导出工具）用「内联字符串」保存文本，
+            # 文件里根本没有 sharedStrings.xml。此时若新建该部件却不把它
+            # 注册进 [Content_Types].xml 和 xl/_rels/workbook.xml.rels，
+            # Excel/openpyxl 就解析不到串表，t="s" 单元格全部越界 → 文件打不开。
+            # 所以：原文件有 SST 才用 SST，没有就继续写内联字符串。
+            _use_sst = os.path.exists(shared_path)
+            if not _use_sst:
+                logger.debug("原文件无 sharedStrings.xml，本次改写使用内联字符串")
+            if _use_sst:
                 _ss_tree = ET.parse(shared_path)
                 _ss_root = _ss_tree.getroot()
                 shared_count_attr = _ss_root.get('count', '0')
@@ -1503,18 +1755,24 @@ def process_orders_preserve_format(orders_path, output_path, template):
                 logger.debug(f"sharedStrings 现有 {len(shared_strings)} 条")
 
             # 收集所有需要写入的新值，去重后分配索引
-            _all_vals = []
-            for _row_updates in updates.values():
-                _all_vals.extend(_row_updates.values())
-            _unique_vals = list(dict.fromkeys(str(v) for v in _all_vals))  # 保序去重
+            # 数字单元格（NumericCell）不参与共享字符串分配；
+            # 内联字符串模式下（_use_sst=False）也不需要分配索引。
             _val_to_idx = {}
-            for _v in _unique_vals:
-                if _v not in shared_strings:
-                    _val_to_idx[_v] = len(shared_strings)
-                    shared_strings.append(_v)
-                else:
-                    _val_to_idx[_v] = shared_strings.index(_v)
-            logger.debug(f"sharedStrings 新增 {len(_val_to_idx)} 条，总计 {len(shared_strings)} 条")
+            if _use_sst:
+                _all_vals = []
+                for _row_updates in updates.values():
+                    for _v in _row_updates.values():
+                        if isinstance(_v, NumericCell):
+                            continue
+                        _all_vals.append(_v)
+                _unique_vals = list(dict.fromkeys(str(v) for v in _all_vals))  # 保序去重
+                for _v in _unique_vals:
+                    if _v not in shared_strings:
+                        _val_to_idx[_v] = len(shared_strings)
+                        shared_strings.append(_v)
+                    else:
+                        _val_to_idx[_v] = shared_strings.index(_v)
+                logger.debug(f"sharedStrings 新增 {len(_val_to_idx)} 条，总计 {len(shared_strings)} 条")
 
             # 3c-bis. 在 styles.xml 中注入宋体10号居中样式（供 AC/AS 单元格引用）
             _styles_path = os.path.join(tmpdir, 'xl', 'styles.xml')
@@ -1575,9 +1833,15 @@ def process_orders_preserve_format(orders_path, output_path, template):
                         cell_map[cl] = c
 
                 for col_letter, new_val in col_updates.items():
-                    new_val = str(new_val) if new_val is not None else ''
                     cell_ref = f'{col_letter}{excel_row}'
-                    ss_idx = _val_to_idx[new_val]  # shared string 索引
+                    # 数字单元格（敏感货标记 = 1）走数字分支，不进共享字符串
+                    is_numeric = isinstance(new_val, NumericCell)
+                    numeric_value = new_val.value if is_numeric else None
+                    ss_idx = None
+                    if not is_numeric:
+                        new_val = str(new_val) if new_val is not None else ''
+                        if _use_sst:
+                            ss_idx = _val_to_idx[new_val]  # shared string 索引
 
                     if col_letter in cell_map:
                         c_elem = cell_map[col_letter]
@@ -1590,14 +1854,36 @@ def process_orders_preserve_format(orders_path, output_path, template):
                         if child.tag in (f'{ns}v', f'{ns}f', f'{ns}is'):
                             c_elem.remove(child)
 
-                    # 写入 shared string 引用（标准 OOXML 方式）
-                    c_elem.set('t', 's')
+                    if is_numeric:
+                        # ── 数字分支：去掉 t 属性（默认即数字 n），写 <v>1</v> ──
+                        if 't' in c_elem.attrib:
+                            del c_elem.attrib['t']
+                        v_elem = ET.SubElement(c_elem, f'{ns}v')
+                        v_elem.text = str(numeric_value)
+                        continue
+
                     # AC/AS 列设置居中宋体10号样式
-                    if (_ac_as_style_id is not None and
-                        col_letter in (channel_col_letter, delivery_col_letter)):
-                        c_elem.set('s', str(_ac_as_style_id))
-                    v_elem = ET.SubElement(c_elem, f'{ns}v')
-                    v_elem.text = str(ss_idx)
+                    _apply_ac_as_style = (
+                        _ac_as_style_id is not None and
+                        col_letter in (channel_col_letter, delivery_col_letter)
+                    )
+
+                    if _use_sst:
+                        # 写入 shared string 引用（标准 OOXML 方式）
+                        c_elem.set('t', 's')
+                        if _apply_ac_as_style:
+                            c_elem.set('s', str(_ac_as_style_id))
+                        v_elem = ET.SubElement(c_elem, f'{ns}v')
+                        v_elem.text = str(ss_idx)
+                    else:
+                        # 原文件无 sharedStrings.xml → 继续用内联字符串，避免新增未注册部件
+                        c_elem.set('t', 'inlineStr')
+                        if _apply_ac_as_style:
+                            c_elem.set('s', str(_ac_as_style_id))
+                        is_elem = ET.SubElement(c_elem, f'{ns}is')
+                        t_elem = ET.SubElement(is_elem, f'{ns}t')
+                        t_elem.text = new_val
+                        t_elem.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
 
                 # 修复5：将本行所有 <c> 元素按列字母排序（Excel 要求升序）
                 _cells = [(c.get('r', ''), c) for c in row_elem.findall(f'{ns}c')]
@@ -1674,9 +1960,10 @@ def process_orders_preserve_format(orders_path, output_path, template):
 
     logger.info(
         f"处理完成: 修改 {modified_count} 行, 跳过 {skipped_count} 行, 错误 {error_count} 行, "
-        f"AC/AS填充 {ac_as_filled} 行"
+        f"AC/AS填充 {ac_as_filled} 行, 敏感货标记 {sensitive_marked} 行"
+        + (f"（{sensitive_skipped} 行因缺少「客人图片」列未标记）" if sensitive_skipped else "")
     )
-    return modified_count, skipped_count, error_count, ac_as_filled
+    return modified_count, skipped_count, error_count, ac_as_filled, sensitive_marked
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
@@ -1757,7 +2044,7 @@ def main():
     # 3. 处理订单（openpyxl 保留原始格式）
     logger.info("开始处理订单（保留原始格式）...")
     try:
-        modified, skipped, errors, ac_as = process_orders_preserve_format(
+        modified, skipped, errors, ac_as, sensitive = process_orders_preserve_format(
             args.orders, args.output, template
         )
     except Exception as e:
@@ -1766,7 +2053,10 @@ def main():
 
     # 4. 输出结果
     logger.info(f"✓ 结果已保存到 {args.output}")
-    logger.info(f"  修改 {modified} 行, 跳过 {skipped} 行, 错误 {errors} 行, AC/AS {ac_as} 行")
+    logger.info(
+        f"  修改 {modified} 行, 跳过 {skipped} 行, 错误 {errors} 行, "
+        f"AC/AS {ac_as} 行, 敏感货标记 {sensitive} 行"
+    )
 
     logger.info("=" * 60)
     logger.info("处理完成!")
