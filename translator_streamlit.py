@@ -28,21 +28,47 @@ logging.getLogger("translator").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # ── 从 translator.py 导入核心函数 ────────────────────────────────
-from translator import (
-    _find_column,
-    parse_rule,
-    apply_rules,
-    load_template,
-    process_orders_preserve_format,
-    _update_xlsx_cells_lightweight,
-    _col_idx_to_letter,
-    # 敏感货标记（[敏感货]）
-    SENSITIVE_MARKER,
-    TemplateRules,
-    _strip_sensitive_marker,
-    _is_sensitive_marker_segment,
-    _is_sensitive_sku,
-)
+#
+# ⚠️ 版本自愈（重要）：Streamlit 是长驻进程，rerun 时**只重新执行本脚本**，
+#   已经 import 过的 translator 模块仍然留在 sys.modules 里（还是旧代码）。
+#   所以「只改了 translator.py、但进程没重启」时，下面这些新符号会导入失败，
+#   表现为整页红色英文报错 "ImportError: cannot import name ..."。
+#   这里检测到缺符号就先 importlib.reload 一次（重新执行磁盘上的 translator.py），
+#   让改动无需重启进程也能生效。
+import translator as _translator_mod
+if not hasattr(_translator_mod, "SENSITIVE_MARKER"):
+    import importlib
+    try:
+        importlib.reload(_translator_mod)
+        logger.info("检测到 translator 模块为旧版，已自动 reload 生效")
+    except Exception as _reload_err:  # noqa: BLE001
+        logger.warning(f"translator 模块自动 reload 失败: {_reload_err}")
+
+try:
+    from translator import (
+        _find_column,
+        parse_rule,
+        apply_rules,
+        load_template,
+        process_orders_preserve_format,
+        _update_xlsx_cells_lightweight,
+        _col_idx_to_letter,
+        # 敏感货标记（[敏感货]）
+        SENSITIVE_MARKER,
+        TemplateRules,
+        _strip_sensitive_marker,
+        _is_sensitive_marker_segment,
+        _is_sensitive_sku,
+    )
+except ImportError as _import_err:
+    # reload 之后仍缺符号 = 磁盘上的 translator.py 同样是旧版（部署不完整）。
+    # 用中文提示代替 Streamlit 的英文红框，明确告诉运营怎么恢复。
+    st.error(
+        "### ⚠️ 代码版本不一致\n\n"
+        f"`translator.py` 缺少本次功能所需的函数：`{_import_err}`\n\n"
+        "**云端版**：点右下角 **Manage app** → **Reboot app** 重新部署。"
+    )
+    st.stop()
 
 # ── 上传文件工具：识别 Windows 快捷方式（.lnk）────────────────────────
 def _is_shortcut(uploaded):
