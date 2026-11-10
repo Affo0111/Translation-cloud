@@ -268,6 +268,86 @@ def _show_registered_skus():
         st.info("暂无已入库属性表")
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# 版本播报（Release Notes）
+# ════════════════════════════════════════════════════════════════════════════
+# 【维护方法 · 重要】每次上线新功能，只需在 RELEASE_NOTES 最前面插入一条 dict，
+# 页面顶部就会自动播报「新版本号 + 新功能用法」，旧记录自动收进「历史版本」。
+# 除此之外不用改任何代码，也不用改标题栏 / CSS / 按钮。
+#
+# 字段说明：
+#   version  版本号（新增功能递增小版本，如 v2.6.0 → v2.7.0）
+#   date     上线日期 YYYY-MM-DD
+#   title    新功能一句话名称
+#   summary  这功能解决什么问题（大白话，写给同事看）
+#   usage    用法示例，纯文本多行；没有示例就留空字符串
+#   tips     使用要点列表，可为空列表
+RELEASE_NOTES = [
+    {
+        "version": "v2.6.0",
+        "date": "2026-11-09",
+        "title": "敏感货标记 [敏感货]",
+        "summary": "在翻译模板里给某个 SKU 加一行 [敏感货]，转化订单时系统会自动在该行「客人图片」列写数字 1，方便直接筛选敏感货订单。",
+        "usage": "[Name]=[名字];\n[Size]=[尺寸];\n[敏感货]",
+        "tips": [
+            "写在翻译模板的「翻译模板」列里，和该 SKU 其它规则用分号隔开；标记也可以单独占一行。",
+            '只写数字 1（不是文本 "1"）；「客人图片」列按列名自动定位，不同模板列位置不同也能生效。',
+            "转化后在结果统计里看「🚩 敏感货标记行数」，确认本次标记了多少行。",
+            "容错写法：[ 敏感货 ]、［敏感货］、裸写 敏感货 都能识别；[产品:敏感货] 这类正常规则不会被误判。",
+        ],
+    },
+    {
+        "version": "v2.5.0",
+        "date": "历史基线",
+        "title": "基础功能（版本播报上线前）",
+        "summary": "按 SKU 规则批量改写订单定制项，自动填物流渠道 / 时效，可选填 callie 商品信息与定制项，并原样保留原文件的图片与多 sheet。",
+        "usage": "",
+        "tips": [],
+    },
+]
+
+# 当前版本号唯一来源：始终取列表第一条，避免多处手写版本号对不上
+APP_VERSION = RELEASE_NOTES[0]["version"]
+
+
+def _render_release_notes():
+    """页面顶部播报最新版本号与新功能用法；历史版本折叠查看。"""
+    from html import escape
+
+    latest = RELEASE_NOTES[0]
+    usage_html = (
+        f'<pre class="release-usage">{escape(latest["usage"])}</pre>'
+        if latest.get("usage") else ""
+    )
+    tips_html = "".join(f"<li>{escape(t)}</li>" for t in latest.get("tips", []))
+    tips_block = f'<ul class="release-tips">{tips_html}</ul>' if tips_html else ""
+
+    st.markdown(
+        f"""
+<div class="release-card">
+  <div class="release-top">
+    <span class="release-kicker">🆕 版本更新播报</span>
+    <span class="release-badge">{escape(latest["version"])}</span>
+    <span class="release-date">{escape(latest["date"])} 上线</span>
+    <span class="release-hint">每次新增功能，这里都会播报版本号和用法</span>
+  </div>
+  <div class="release-title">{escape(latest["title"])}</div>
+  <div class="release-summary">{escape(latest["summary"])}</div>
+  {usage_html}
+  {tips_block}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("📜 历史版本", expanded=False):
+        if len(RELEASE_NOTES) == 1:
+            st.caption("暂无更早的发布记录")
+        for item in RELEASE_NOTES[1:]:
+            st.markdown(f"**{escape(item['version'])} · {escape(item['title'])}**")
+            st.caption(f"{escape(item['date'])} · {escape(item['summary'])}")
+
+
 # ── 页面配置 ────────────────────────────────────────────────────
 st.set_page_config(
     page_title="订单翻译系统",
@@ -312,21 +392,53 @@ st.markdown("""
     .rules-btn {
         text-align: right;
     }
+    /* 版本播报卡片（浅色主题：白底深字，紫色强调） */
+    .release-card {
+        background: #fafaff; border: 1px solid #e0e7ff; border-left: 4px solid #4f46e5;
+        border-radius: 10px; padding: 0.85rem 1.2rem 0.8rem; margin: 0 0 1rem;
+        color: #1e293b;
+    }
+    .release-top {
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 0.35rem;
+    }
+    .release-kicker { font-size: 0.78rem; font-weight: 700; color: #4f46e5; }
+    .release-badge {
+        background: #4f46e5; color: #ffffff; border-radius: 20px;
+        padding: 2px 10px; font-size: 0.75rem; font-weight: 700;
+    }
+    .release-date { font-size: 0.75rem; color: #64748b; }
+    .release-hint { font-size: 0.72rem; color: #94a3b8; margin-left: auto; }
+    .release-title { font-size: 1rem; font-weight: 700; color: #1e293b; margin: 0.2rem 0; }
+    .release-summary { font-size: 0.85rem; color: #475569; line-height: 1.6; }
+    .release-usage {
+        background: #eef2ff; border: 1px solid #e0e7ff; border-radius: 6px;
+        padding: 0.6rem 0.8rem; font-size: 0.8rem; color: #312e81;
+        white-space: pre-wrap; margin: 0.6rem 0 0.4rem;
+    }
+    .release-tips {
+        margin: 0.2rem 0 0; padding-left: 1.2rem;
+        font-size: 0.8rem; color: #475569; line-height: 1.7;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # A 系统 header + 右上角规则说明按钮
 _h_left, _h_right = st.columns([6, 1])
 with _h_left:
-    st.markdown("""
+    _latest_release = RELEASE_NOTES[0]
+    st.markdown(f"""
     <div class="main-header">
         <h1>🛠️ 定制项翻译</h1>
+        <p>当前版本 {APP_VERSION} · 🆕 最近更新：{_latest_release['title']}（{_latest_release['date']}）· 用法见下方「版本更新播报」</p>
     </div>
     """, unsafe_allow_html=True)
 with _h_right:
     st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
     if st.button("📖 规则说明", key="btn_rules_a", use_container_width=True):
         _show_rules_a()
+
+# ── 顶部版本播报：每次上线新功能，自动播报新版本号 + 用法 ──────────
+_render_release_notes()
 
 # ── 会话状态 ────────────────────────────────────────────────────
 for key, default in [
