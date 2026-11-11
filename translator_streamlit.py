@@ -280,7 +280,8 @@ def _show_registered_skus():
 #   date     上线日期 YYYY-MM-DD
 #   title    新功能一句话名称
 #   summary  这功能解决什么问题（大白话，写给同事看）
-#   usage    用法示例，纯文本多行；没有示例就留空字符串
+#   usage    用法示例，纯文本。必须按真实模板写法「一行一个规则、不加分号」
+#            （引擎会把单元格内换行自动转成分号）；没有示例就留空字符串
 #   tips     使用要点列表，可为空列表
 RELEASE_NOTES = [
     {
@@ -288,9 +289,9 @@ RELEASE_NOTES = [
         "date": "2026-11-09",
         "title": "敏感货标记 [敏感货]",
         "summary": "在翻译模板里给某个 SKU 加一行 [敏感货]，转化订单时系统会自动在该行「客人图片」列写数字 1，方便直接筛选敏感货订单。",
-        "usage": "[Name]=[名字];\n[Size]=[尺寸];\n[敏感货]",
+        "usage": "[Name]=[名字]\n[Size]=[尺寸]\n[敏感货]",
         "tips": [
-            "写在翻译模板的「翻译模板」列里，和该 SKU 其它规则用分号隔开；标记也可以单独占一行。",
+            "写在翻译模板的「翻译模板」列里：一行一个规则、不用分号；在原有规则下面新起一行写 [敏感货] 即可。",
             '只写数字 1（不是文本 "1"）；「客人图片」列按列名自动定位，不同模板列位置不同也能生效。',
             "转化后在结果统计里看「🚩 敏感货标记行数」，确认本次标记了多少行。",
             "容错写法：[ 敏感货 ]、［敏感货］、裸写 敏感货 都能识别；[产品:敏感货] 这类正常规则不会被误判。",
@@ -315,10 +316,20 @@ def _render_release_notes():
     from html import escape
 
     latest = RELEASE_NOTES[0]
-    usage_html = (
-        f'<pre class="release-usage">{escape(latest["usage"])}</pre>'
-        if latest.get("usage") else ""
-    )
+    # 用法示例：整块高亮 + 明确标「示例」，且一行一个 div 保证换行一定显示
+    usage_lines = [ln for ln in latest.get("usage", "").splitlines() if ln.strip()]
+    usage_html = ""
+    if usage_lines:
+        lines_html = "".join(
+            f'<div class="release-usage-line">{escape(ln)}</div>'
+            for ln in usage_lines
+        )
+        usage_html = (
+            '<div class="release-usage">'
+            '<div class="release-usage-label">📌 用法示例 · 写在翻译模板「翻译模板」列，一行一个规则、不用分号</div>'
+            f'<div class="release-usage-code">{lines_html}</div>'
+            '</div>'
+        )
     tips_html = "".join(f"<li>{escape(t)}</li>" for t in latest.get("tips", []))
     tips_block = f'<ul class="release-tips">{tips_html}</ul>' if tips_html else ""
 
@@ -327,7 +338,7 @@ def _render_release_notes():
 <div class="release-card">
   <div class="release-top">
     <span class="release-kicker">🆕 版本更新播报</span>
-    <span class="release-badge">{escape(latest["version"])}</span>
+    <span class="release-badge">{escape(APP_VERSION)}</span>
     <span class="release-date">{escape(latest["date"])} 上线</span>
     <span class="release-hint">每次新增功能，这里都会播报版本号和用法</span>
   </div>
@@ -365,6 +376,11 @@ st.markdown("""
     }
     .main-header h1 { margin: 0; font-size: 1.4rem; }
     .main-header p { margin: 4px 0 0; opacity: 0.85; font-size: 0.85rem; }
+    /* 版本播报要落在页面最顶部的白色区域：收紧主容器默认顶部留白。
+       不能收太狠——Streamlit 有约 60px 高的固定工具栏，留 3rem 才不会被它遮住第一行。 */
+    [data-testid="stMainBlockContainer"], .main .block-container {
+        padding-top: 3rem !important;
+    }
     /* 步骤卡片：给 st.container(border=True) 的边框包装器加样式 */
     [data-testid="stVerticalBlockBorderWrapper"] {
         background: #ffffff; border: 1px solid #e2e8f0 !important;
@@ -410,11 +426,23 @@ st.markdown("""
     .release-hint { font-size: 0.72rem; color: #94a3b8; margin-left: auto; }
     .release-title { font-size: 1rem; font-weight: 700; color: #1e293b; margin: 0.2rem 0; }
     .release-summary { font-size: 0.85rem; color: #475569; line-height: 1.6; }
+    /* 用法示例：整块带背景色高亮，一眼能认出「这是例子」 */
     .release-usage {
-        background: #eef2ff; border: 1px solid #e0e7ff; border-radius: 6px;
-        padding: 0.6rem 0.8rem; font-size: 0.8rem; color: #312e81;
-        white-space: pre-wrap; margin: 0.6rem 0 0.4rem;
+        background: #fff8e1; border: 1px solid #fde68a; border-left: 4px solid #f59e0b;
+        border-radius: 8px; padding: 0.6rem 0.9rem 0.7rem; margin: 0.65rem 0 0.5rem;
     }
+    .release-usage-label {
+        font-size: 0.78rem; font-weight: 700; color: #92400e; margin-bottom: 0.4rem;
+    }
+    .release-usage-code {
+        background: #ffffff; border: 1px solid #fde68a; border-radius: 6px;
+        padding: 0.45rem 0.7rem;
+    }
+    .release-usage-line {
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 0.82rem; line-height: 1.75; color: #1e293b; white-space: pre-wrap;
+    }
+    .release-usage-line + .release-usage-line { border-top: 1px dashed #f3e8c0; }
     .release-tips {
         margin: 0.2rem 0 0; padding-left: 1.2rem;
         font-size: 0.8rem; color: #475569; line-height: 1.7;
@@ -422,23 +450,21 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ── 最顶部白色区域的版本播报（必须排在标题栏之前才会显示在页面最顶端）──
+_render_release_notes()
+
 # A 系统 header + 右上角规则说明按钮
 _h_left, _h_right = st.columns([6, 1])
 with _h_left:
-    _latest_release = RELEASE_NOTES[0]
-    st.markdown(f"""
+    st.markdown("""
     <div class="main-header">
         <h1>🛠️ 定制项翻译</h1>
-        <p>当前版本 {APP_VERSION} · 🆕 最近更新：{_latest_release['title']}（{_latest_release['date']}）· 用法见下方「版本更新播报」</p>
     </div>
     """, unsafe_allow_html=True)
 with _h_right:
     st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
     if st.button("📖 规则说明", key="btn_rules_a", use_container_width=True):
         _show_rules_a()
-
-# ── 顶部版本播报：每次上线新功能，自动播报新版本号 + 用法 ──────────
-_render_release_notes()
 
 # ── 会话状态 ────────────────────────────────────────────────────
 for key, default in [
