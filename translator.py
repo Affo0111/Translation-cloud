@@ -35,6 +35,10 @@ logger = logging.getLogger("translator")
 
 # ── 版本号（用于 Streamlit Cloud 确认部署版本）──
 __version__ = "2.5.0-styled"
+# 引擎构建标记：改了 translator.py 内部实现后，同步把 UI 里的
+# _EXPECTED_ENGINE_BUILD 改成同一个值，长驻 Streamlit 进程刷新页面就会自动
+# reload，不必重启服务（见 translator_streamlit.py 顶部「版本自愈」）。
+ENGINE_BUILD = "2026-11-12-media-skip"
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
