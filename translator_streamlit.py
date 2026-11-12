@@ -33,10 +33,13 @@ logger = logging.getLogger(__name__)
 #   已经 import 过的 translator 模块仍然留在 sys.modules 里（还是旧代码）。
 #   所以「只改了 translator.py、但进程没重启」时，下面这些新符号会导入失败，
 #   表现为整页红色英文报错 "ImportError: cannot import name ..."。
-#   这里检测到缺符号就先 importlib.reload 一次（重新执行磁盘上的 translator.py），
-#   让改动无需重启进程也能生效。
+#   这里比对 ENGINE_BUILD 构建标记，不一致就 importlib.reload 一次
+#   （重新执行磁盘上的 translator.py），让改动无需重启进程也能生效。
+#   ★ 以后改 translator.py：把 translator.py 的 ENGINE_BUILD 与下面
+#     _EXPECTED_ENGINE_BUILD 一起改成同一个新值即可触发自愈。
 import translator as _translator_mod
-if not hasattr(_translator_mod, "SENSITIVE_MARKER"):
+_EXPECTED_ENGINE_BUILD = "2026-11-12-media-skip"
+if getattr(_translator_mod, "ENGINE_BUILD", None) != _EXPECTED_ENGINE_BUILD:
     import importlib
     try:
         importlib.reload(_translator_mod)
