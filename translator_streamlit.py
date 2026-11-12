@@ -113,6 +113,20 @@ _A_SYSTEM_RULES_MD = r"""
 | `\|` | 逻辑或 | `[尺寸:L\|尺寸:M]` |
 | `;` | 子规则分隔 | 多条规则用 `;` 隔开 |
 
+### 敏感货标记（2026-11-09 新增）
+给需要标记的 SKU，在「翻译模板」列里**另起一行写 `[敏感货]`**（一行一个规则、不用分号）。转化订单时，系统会自动在该 SKU 订单行的「客人图片」列写数字 **1**，方便直接筛选敏感货订单。
+
+模板示例（某个 SKU 的规则）：
+```text
+[Name]=[名字]
+[Size]=[尺寸]
+[敏感货]
+```
+
+- 容错写法：`[ 敏感货 ]`、`［敏感货］`、裸写 `敏感货` 都能识别；`[产品:敏感货]` 这类正常规则不会被误判。
+- 只有标记、没有其它规则的 SKU 也算有效，不会报解析失败。
+- 转化后在结果统计看「🚩 敏感货标记行数」确认生效行数。
+
 ### 优先级
 执行顺序：`^` → `!` → `=` → `++` → `+`；同一规则内先 `[]` 再 `&` 再 `\|`。
 """
@@ -271,39 +285,30 @@ def _show_registered_skus():
 # ════════════════════════════════════════════════════════════════════════════
 # 版本播报（Release Notes）
 # ════════════════════════════════════════════════════════════════════════════
-# 【维护方法 · 重要】每次上线新功能，只需在 RELEASE_NOTES 最前面插入一条 dict，
-# 页面顶部就会自动播报「新版本号 + 新功能用法」，旧记录自动收进「历史版本」。
-# 除此之外不用改任何代码，也不用改标题栏 / CSS / 按钮。
+# 【维护方法】每次上线新功能，把 RELEASE_NOTES 的第一条换成新记录即可，
+# 页面最顶部会自动播报「新版本号 + 新功能用法」。不用改其它代码。
 #
 # 字段说明：
 #   version  版本号（新增功能递增小版本，如 v2.6.0 → v2.7.0）
 #   date     上线日期 YYYY-MM-DD
 #   title    新功能一句话名称
 #   summary  这功能解决什么问题（大白话，写给同事看）
-#   usage    用法示例，纯文本。必须按真实模板写法「一行一个规则、不加分号」
-#            （引擎会把单元格内换行自动转成分号）；没有示例就留空字符串
-#   tips     使用要点列表，可为空列表
+#   tips     使用要点列表，显示在卡片中部
+#   usage    用法示例，纯文本，显示在卡片最下面。必须按真实模板写法
+#            「一行一个规则、不加分号」（引擎会把单元格内换行自动转成分号）；
+#            没有示例就留空字符串
 RELEASE_NOTES = [
     {
         "version": "v2.6.0",
         "date": "2026-11-09",
         "title": "敏感货标记 [敏感货]",
         "summary": "在翻译模板里给某个 SKU 加一行 [敏感货]，转化订单时系统会自动在该行「客人图片」列写数字 1，方便直接筛选敏感货订单。",
-        "usage": "[Name]=[名字]\n[Size]=[尺寸]\n[敏感货]",
         "tips": [
             "写在翻译模板的「翻译模板」列里：一行一个规则、不用分号；在原有规则下面新起一行写 [敏感货] 即可。",
-            '只写数字 1（不是文本 "1"）；「客人图片」列按列名自动定位，不同模板列位置不同也能生效。',
             "转化后在结果统计里看「🚩 敏感货标记行数」，确认本次标记了多少行。",
             "容错写法：[ 敏感货 ]、［敏感货］、裸写 敏感货 都能识别；[产品:敏感货] 这类正常规则不会被误判。",
         ],
-    },
-    {
-        "version": "v2.5.0",
-        "date": "历史基线",
-        "title": "基础功能（版本播报上线前）",
-        "summary": "按 SKU 规则批量改写订单定制项，自动填物流渠道 / 时效，可选填 callie 商品信息与定制项，并原样保留原文件的图片与多 sheet。",
-        "usage": "",
-        "tips": [],
+        "usage": "[Name]=[名字]\n[Size]=[尺寸]\n[敏感货]",
     },
 ]
 
@@ -312,10 +317,13 @@ APP_VERSION = RELEASE_NOTES[0]["version"]
 
 
 def _render_release_notes():
-    """页面顶部播报最新版本号与新功能用法；历史版本折叠查看。"""
+    """页面最顶部播报最新版本号与新功能用法；用法示例固定在卡片最下面。"""
     from html import escape
 
     latest = RELEASE_NOTES[0]
+    tips_html = "".join(f"<li>{escape(t)}</li>" for t in latest.get("tips", []))
+    tips_block = f'<ul class="release-tips">{tips_html}</ul>' if tips_html else ""
+
     # 用法示例：整块高亮 + 明确标「示例」，且一行一个 div 保证换行一定显示
     usage_lines = [ln for ln in latest.get("usage", "").splitlines() if ln.strip()]
     usage_html = ""
@@ -330,8 +338,6 @@ def _render_release_notes():
             f'<div class="release-usage-code">{lines_html}</div>'
             '</div>'
         )
-    tips_html = "".join(f"<li>{escape(t)}</li>" for t in latest.get("tips", []))
-    tips_block = f'<ul class="release-tips">{tips_html}</ul>' if tips_html else ""
 
     st.markdown(
         f"""
@@ -340,23 +346,15 @@ def _render_release_notes():
     <span class="release-kicker">🆕 版本更新播报</span>
     <span class="release-badge">{escape(APP_VERSION)}</span>
     <span class="release-date">{escape(latest["date"])} 上线</span>
-    <span class="release-hint">每次新增功能，这里都会播报版本号和用法</span>
   </div>
   <div class="release-title">{escape(latest["title"])}</div>
   <div class="release-summary">{escape(latest["summary"])}</div>
-  {usage_html}
   {tips_block}
+  {usage_html}
 </div>
 """,
         unsafe_allow_html=True,
     )
-
-    with st.expander("📜 历史版本", expanded=False):
-        if len(RELEASE_NOTES) == 1:
-            st.caption("暂无更早的发布记录")
-        for item in RELEASE_NOTES[1:]:
-            st.markdown(f"**{escape(item['version'])} · {escape(item['title'])}**")
-            st.caption(f"{escape(item['date'])} · {escape(item['summary'])}")
 
 
 # ── 页面配置 ────────────────────────────────────────────────────
@@ -423,7 +421,6 @@ st.markdown("""
         padding: 2px 10px; font-size: 0.75rem; font-weight: 700;
     }
     .release-date { font-size: 0.75rem; color: #64748b; }
-    .release-hint { font-size: 0.72rem; color: #94a3b8; margin-left: auto; }
     .release-title { font-size: 1rem; font-weight: 700; color: #1e293b; margin: 0.2rem 0; }
     .release-summary { font-size: 0.85rem; color: #475569; line-height: 1.6; }
     /* 用法示例：整块带背景色高亮，一眼能认出「这是例子」 */
