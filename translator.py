@@ -1511,7 +1511,8 @@ def process_orders_preserve_format(orders_path, output_path, template):
     用 zipfile 直接操作 XLSX 底层 ZIP，只修改目标单元格 XML，保留一切原始内容。
     图片（xl/media/）、格式（xl/styles.xml）、列宽、行高、公式、合并单元格完全不动。
 
-    流程：pandas 读取数据 → 处理 → 解压到临时目录 → 修改 sheet1.xml → 重新打包。
+    流程：pandas 读取数据 → 处理 → 解压（跳过图片）→ 修改 sheet1.xml → 重新打包。
+    图片从原包直接复制，不解压落盘、不做二次压缩，避免图片多时耗时成倍增长。
 
     敏感货标记与翻译在同一趟循环内完成，并合并进同一批 XML 更新：
     被标记 `[敏感货]` 的 SKU，其订单行「客人图片」列写数字 1（NumericCell），
@@ -1668,9 +1669,18 @@ def process_orders_preserve_format(orders_path, output_path, template):
     if updates:
         tmpdir = tempfile.mkdtemp()
         try:
-            # 3a. 解压整个 XLSX 到临时目录（图片、格式等全部原样提取）
+            # 3a. 解压 XLSX 到临时目录，但**跳过 xl/media/ 下的图片**。
+            # 翻译只改少数 XML，图片从头到尾不需要动。原实现 extractall 会把
+            # 几十 MB 图片写进临时盘，重打包时全部 DEFLATE 压一遍、最后 rmtree
+            # 删掉——图片越多耗时成倍增长（实测 74MB/36 张图约 5s 耗在这里，
+            # 占全流程约 85%）。图片改为打包时从原包直接复制（见 3f）。
+            _media_entries = []
             with zipfile.ZipFile(orders_path, 'r') as zf:
-                zf.extractall(tmpdir)
+                for _info in zf.infolist():
+                    if _info.filename.startswith('xl/media/') and not _info.is_dir():
+                        _media_entries.append(_info.filename)
+                        continue
+                    zf.extract(_info, tmpdir)
 
             # 3b. 找到工作表文件
             sheet_path = os.path.join(tmpdir, 'xl', 'worksheets', 'sheet1.xml')
@@ -1934,12 +1944,25 @@ def process_orders_preserve_format(orders_path, output_path, template):
                     ct_tree.write(ct_path, xml_declaration=True, encoding='UTF-8')
                     logger.debug("已更新 [Content_Types].xml")
 
-            with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
-                for dirpath, _, filenames in os.walk(tmpdir):
-                    for fn in filenames:
-                        full = os.path.join(dirpath, fn)
-                        arc = os.path.relpath(full, tmpdir).replace('\\', '/')
-                        zout.write(full, arc)
+            with zipfile.ZipFile(orders_path, 'r') as zin:
+                with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+                    # ① 已解压（可能被改写）的 XML 等小文件：正常压缩写入
+                    for dirpath, _, filenames in os.walk(tmpdir):
+                        for fn in filenames:
+                            full = os.path.join(dirpath, fn)
+                            arc = os.path.relpath(full, tmpdir).replace('\\', '/')
+                            zout.write(full, arc)
+                    # ② 图片：从原包读出后以 STORED 直接写入，不做二次 DEFLATE。
+                    #    PNG/JPG 本身已压缩，再压一遍几乎不省空间却最费 CPU；
+                    #    图片字节内容完全不变，Excel / openpyxl 都正常识别。
+                    for _name in _media_entries:
+                        _data = zin.read(_name)
+                        _src_info = zin.getinfo(_name)
+                        _zi = zipfile.ZipInfo(_name, date_time=_src_info.date_time)
+                        _zi.compress_type = zipfile.ZIP_STORED
+                        _zi.external_attr = _src_info.external_attr
+                        _zi.create_system = _src_info.create_system
+                        zout.writestr(_zi, _data)
 
             total_cells = sum(len(v) for v in updates.values())
             logger.info(
