@@ -95,43 +95,80 @@ def _is_shortcut(uploaded):
 # ════════════════════════════════════════════════════════════════════════════
 
 _A_SYSTEM_RULES_MD = r"""
-### 作用
-根据 SKU 规则，把订单中的「定制项」列（K 列）翻译成工厂能看懂的格式，并可按条件改 SKU、删行、增行。
+### 一、这个功能做什么
+读订单每一行的 SKU → 到「翻译模板」里找这个 SKU 的规则 → 按规则改写「定制项」列；同时自动填物流渠道 / 时效，按需给敏感货打标。原文件的图片、格式、其它 sheet 全部保留。
 
-### 操作符（按执行顺序）
-| 符号 | 名称 | 写法 | 示例 |
-|------|------|------|------|
-| `^` | SKU 变化 | `^[条件] , 后缀` | `^[尺寸:L] , -1` → 满足条件时 SKU 末尾加 `-1` |
-| `!` | 删除 | `![条件]` | `![无:XYZ]` → 删除「无:XYZ」行 |
-| `=` | 翻译 | `[源]=[目标]` | `[Name]=[名字]` 改键名；`[尺寸:L]=[尺寸:大号]` 改键值 |
-| `++` | 指定位置插入 | `[位置] ++ [内容]` | `[前面有云:白云] ++ [背后有云:白云]` |
-| `+` | 行末追加 | `+[内容]` | `+[注意:加急]` |
+以本次 CG 订单为例（**列位置会随模板变化，系统按列名定位，不写死列号**）：
 
-### 修饰符
-| 符号 | 含义 | 示例 |
+| 列 | 表头 | 系统动作 |
 |------|------|------|
-| `[]` | 范围/条件 | `[尺寸:L]` |
-| `:` | 键值分隔 | `键:值` |
-| `&` | 逻辑与 | `[尺寸:L]&[颜色:红]` |
-| `\|` | 逻辑或 | `[尺寸:L\|尺寸:M]` |
-| `;` | 子规则分隔 | 多条规则用 `;` 隔开 |
+| E | SKU | 只有模板里写了 `^` 规则才可能加后缀 |
+| I | 客人图片 | 该 SKU 写了 `[敏感货]` 时写入数字 1 |
+| K | 定制项 | **主战场**：按规则翻译 / 删行 / 加行 |
+| AE | 买家选择渠道类型 | 自动填：加急 Y → 快递 / 2；N → 经济线 / 1 |
+| AT | 购买配送服务 | 自动填：同上 |
 
-### 敏感货标记（2026-11-09 新增）
-给需要标记的 SKU，在「翻译模板」列里**另起一行写 `[敏感货]`**（一行一个规则、不用分号）。转化订单时，系统会自动在该 SKU 订单行的「客人图片」列写数字 **1**，方便直接筛选敏感货订单。
+> A 系统**不会删除或新增列**，也不会动图片。若你拿到的文件少了「临时列(需删除)」，那是人工或 B 系统处理的。
 
-模板示例（某个 SKU 的规则）：
+### 二、规则怎么写
+在「翻译模板」列里，**一行一条规则，行尾加 `;`**（最后一行可省略）。系统按 `;` 和换行切分，写成一行用 `;` 连起来也能识别。
+
+`CG翻译模板.xlsx` 里的真实例子：
+
+| SKU | 模板里怎么写 | 效果 |
+|------|------|------|
+| CAJJ263394 | `![NO:NO];` | 定制项里「NO:NO」整行删掉 |
+| PG6800 | `[Light Blonde]=[浅金];[Dark Brown]=[深棕];[Black]=[黑];[Silver]=[银];[ Auburn]=[赤褐];[ Light Brown]=[浅棕]` | 发色英文值换成中文 |
+| CAFS260044 | `^[NO:NO],[NO:NO]-B2B;` | 定制项里有 NO:NO 时，SKU 末尾加该值 + `-B2B`（如 `-1` → `-1-B2B`） |
+
+两条铁律：
+1. `=` 是**整键 / 整键值精确匹配**，不在长文本里做子串替换：`[Black]=[黑]` 只改值正好是 `Black` 的，`Blackish` 不会被动。
+2. 英文拼写、大小写、空格必须和订单完全一致（模板里 `[ Auburn]` 前面就带一个空格，这种最容易漏）。
+
+### 三、五种操作符（按执行顺序）
+| 符号 | 名称 | 写法 | 真实例子 | 说明 |
+|------|------|------|------|------|
+| `^` | 改 SKU | `^[条件] , 后缀` | `^[NO:NO],[NO:NO]-B2B;` | 满足条件时给 SKU 加后缀；后缀里的 `[键]` 会替换成该键的值 |
+| `!` | 删行 | `![条件]` | `![NO:NO];` | 删掉键名是 NO:NO 的整行 |
+| `=` | 翻译 | `[源]=[目标]` | `[Name]=[名字];` 改键名；`[Black]=[黑];` 改键值 | 整键或整键值精确替换 |
+| `++` | 指定位置插入 | `[位置] ++ [内容]` | `[前面有云:白云] ++ [背后有云:白云]` | 插在指定行后面 |
+| `+` | 行末追加 | `+[内容]` | `+[注意:加急]` | 追加到定制项最后一行 |
+
+### 四、条件与修饰符
+| 符号 | 含义 | 例子 |
+|------|------|------|
+| `[]` | 包住键名 / 键值 / 条件 | `[尺寸:L]` |
+| `:` | 键与值分隔 | `[尺寸:L]` = 「尺寸」的值是 L |
+| `&` | 同时满足 | `[尺寸:L]&[颜色:红]` |
+| `\|` | 满足其一 | `[尺寸:L\|尺寸:M]` |
+| `;` | 规则分隔 | `![NO:NO];[Name]=[名字];` |
+
+### 五、多条规则怎么执行
+1. 同一个 SKU 的多条规则，从上到下依次执行
+2. 不同操作符有固定顺序：`^` → `!` → `=` → `++` → `+`
+3. 条件内部先看 `[]`，再看 `&`，最后 `\|`
+
+### 六、敏感货标记
+在原有规则下面**另起一行写 `[敏感货]`**（它是最后一条，行尾不用分号）：
+
 ```text
-[Name]=[名字]
-[Size]=[尺寸]
+[Name]=[名字];
+[Size]=[尺寸];
 [敏感货]
 ```
 
-- 容错写法：`[ 敏感货 ]`、`［敏感货］`、裸写 `敏感货` 都能识别；`[产品:敏感货]` 这类正常规则不会被误判。
-- 只有标记、没有其它规则的 SKU 也算有效，不会报解析失败。
-- 转化后在结果统计看「🚩 敏感货标记行数」确认生效行数。
+转化时系统会在该 SKU 订单行的「客人图片」列写数字 **1**，方便筛选。
 
-### 优先级
-执行顺序：`^` → `!` → `=` → `++` → `+`；同一规则内先 `[]` 再 `&` 再 `\|`。
+- 容错：`[ 敏感货 ]`、`［敏感货］`、裸写 `敏感货` 都能识别；`[产品:敏感货]` 这类正常规则不会被误判
+- 只有标记、没有其它规则的 SKU 也算有效，不会报解析失败
+- 转化后看结果统计「🚩 敏感货标记行数」确认生效
+- 找不到「客人图片」列时只跳过标记，翻译照常执行
+
+### 七、常见问题
+- **报「规则源为空」**：规则里写了 `[]=[xx]`，方括号里没内容。删掉这条即可，其它规则不受影响。
+- **SKU 没被翻译**：订单用的是子 SKU（`CZY…`），模板只有父 SKU（`CAJJ…`）。在模板补一条子 SKU 行，或让技术补别名。
+- **某个值没替换**：检查英文拼写 / 空格 / 大小写是否和订单完全一致。
+- **渠道、时效没填**：确认订单有「加急」列，且这一行有 SKU。
 """
 
 _B_SYSTEM_RULES_MD = r"""
@@ -307,11 +344,11 @@ RELEASE_NOTES = [
         "title": "敏感货标记 [敏感货]",
         "summary": "在翻译模板里给某个 SKU 加一行 [敏感货]，转化订单时系统会自动在该行「客人图片」列写数字 1，方便直接筛选敏感货订单。",
         "tips": [
-            "写在翻译模板的「翻译模板」列里：一行一个规则、不用分号；在原有规则下面新起一行写 [敏感货] 即可。",
+            "写在翻译模板的「翻译模板」列里：一行一个规则、行尾加分号；在原有规则下面新起一行写 [敏感货] 即可。",
             "转化后在结果统计里看「🚩 敏感货标记行数」，确认本次标记了多少行。",
             "容错写法：[ 敏感货 ]、［敏感货］、裸写 敏感货 都能识别；[产品:敏感货] 这类正常规则不会被误判。",
         ],
-        "usage": "[Name]=[名字]\n[Size]=[尺寸]\n[敏感货]",
+        "usage": "[Name]=[名字];\n[Size]=[尺寸];\n[敏感货]",
     },
 ]
 
@@ -320,7 +357,7 @@ APP_VERSION = RELEASE_NOTES[0]["version"]
 
 
 def _render_release_notes():
-    """页面最顶部播报最新版本号与新功能用法；用法示例固定在卡片最下面。"""
+    """页面最顶部播报最新版本号与新功能用法；默认折叠，点击标题才展开。"""
     from html import escape
 
     latest = RELEASE_NOTES[0]
@@ -337,13 +374,12 @@ def _render_release_notes():
         )
         usage_html = (
             '<div class="release-usage">'
-            '<div class="release-usage-label">📌 用法示例 · 写在翻译模板「翻译模板」列，一行一个规则、不用分号</div>'
+            '<div class="release-usage-label">📌 用法示例 · 写在翻译模板「翻译模板」列，一行一个规则，行尾加分号</div>'
             f'<div class="release-usage-code">{lines_html}</div>'
             '</div>'
         )
 
-    st.markdown(
-        f"""
+    card_html = f"""
 <div class="release-card">
   <div class="release-top">
     <span class="release-kicker">🆕 版本更新播报</span>
@@ -355,9 +391,13 @@ def _render_release_notes():
   {tips_block}
   {usage_html}
 </div>
-""",
-        unsafe_allow_html=True,
-    )
+"""
+    # 默认折叠：只有点击标题才展开更新内容
+    with st.expander(
+        f"🆕 版本更新播报 · {APP_VERSION} · {latest['date']} 上线 · {latest['title']}",
+        expanded=False,
+    ):
+        st.markdown(card_html, unsafe_allow_html=True)
 
 
 # ── 页面配置 ────────────────────────────────────────────────────
@@ -1043,120 +1083,6 @@ with col4, _step_card("步骤4：错误报告"):
                     "错误原因": st.column_config.TextColumn("错误原因", width="large"),
                 })
 
-# ── A 系统规则草稿生成（独立面板，不依赖步骤一）──
-with st.expander("规则草稿生成"):
-    import translator as tr
-    import streamlit.components.v1 as components
-    import json
-
-    _c1, _c2, _c3 = st.columns(3)
-
-    # 统一标题行高度，保证三个文本框顶部对齐
-    _TITLE_H = 34
-
-    with _c1:
-        st.markdown(
-            f"<div style='height:{_TITLE_H}px;display:flex;align-items:center;'>"
-            f"<b>📝 翻译前定制项</b></div>",
-            unsafe_allow_html=True,
-        )
-        _b = st.text_area("翻译前定制项",
-                          key="gen_a_before", label_visibility="collapsed",
-                          placeholder="（J列样例）")
-
-    with _c2:
-        st.markdown(
-            f"<div style='height:{_TITLE_H}px;display:flex;align-items:center;'>"
-            f"<b>📋 翻译后定制项</b></div>",
-            unsafe_allow_html=True,
-        )
-        _a = st.text_area("翻译后定制项",
-                          key="gen_a_after", label_visibility="collapsed",
-                          placeholder="（AZ列样例）")
-
-    with _c3:
-        _fb = json.dumps(st.session_state.get("generator_rules", ""))
-        # 标题 + 悬浮复制按钮；按钮事件在下方 components.html 中绑定，不占额外高度
-        st.markdown(
-            f"<div style='height:{_TITLE_H}px;display:flex;align-items:center;position:relative;'>"
-            f"<b>⚙️ 规则草稿生成</b>"
-            f"<button id='copyDraftBtn' type='button' title='复制草稿' "
-            f"style='position:absolute;right:0;top:50%;transform:translateY(-50%);border:none;background:transparent;font-size:18px;cursor:pointer;padding:2px 6px;border-radius:6px;' "
-            f"onmouseover='this.style.background=\"#e2e8f0\"' "
-            f"onmouseout='this.style.background=\"transparent\"'>📋</button>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-        _draft_val = st.text_area("翻译模板草稿", value=st.session_state.get("generator_rules", ""),
-                                  label_visibility="collapsed",
-                                  placeholder="（生成后显示规则草稿）")
-
-    # 生成 / 校验按钮并排
-    _btn1, _btn2 = st.columns(2)
-    with _btn1:
-        if st.button("📝 生成草稿", key="gen_a_btn", use_container_width=True):
-            _bb = st.session_state.gen_a_before
-            _aa = st.session_state.gen_a_after
-            if not _bb.strip() or not _aa.strip():
-                st.warning("请先填写「翻译前」和「翻译后」定制项")
-            else:
-                try:
-                    _draft = tr.generate_a_rule_draft(_bb, _aa)
-                    st.session_state.generator_rules = _draft
-                    st.rerun()
-                except Exception as _e:
-                    st.error(f"生成失败：{_e}")
-    with _btn2:
-        if st.button("✅ 校验", key="gen_a_test", use_container_width=True):
-            if not _draft_val.strip():
-                st.warning("草稿为空，请先点「生成草稿」")
-            else:
-                try:
-                    _rules = tr.parse_rule(tr.strip_rule_comments(_draft_val))
-                    _sku, _result = tr.apply_rules(_rules, "SKU", st.session_state.gen_a_before)
-                    def _norm(s):
-                        import re
-                        return [re.sub(r"\s*:\s*", ":", l).strip()
-                                for l in str(s).splitlines() if l.strip()]
-                    if _norm(_result) == _norm(st.session_state.gen_a_after):
-                        st.success("✅ 草稿作用于「翻译前」后，结果与「翻译后」完全一致")
-                    else:
-                        st.warning("⚠️ 有差异：")
-                        st.code("—— 草稿生成结果 ——\n" + "\n".join(_norm(_result)))
-                        st.code("—— 期望（翻译后）——\n" + "\n".join(_norm(st.session_state.gen_a_after)))
-                except Exception as _e:
-                    st.error(f"编译/校验失败：{_e}")
-
-    # 三个输入框高度自适应（随内容增长），并绑定复制按钮事件
-    _auto_resize_html = (
-        "<script>"
-        "var _fb=" + _fb + ";"
-        "function _ar(ta){ta.style.height='auto';ta.style.height=Math.max(ta.scrollHeight,100)+'px';}"
-        "function _bindCopy(){"
-        "var b=window.parent.document.getElementById('copyDraftBtn');"
-        "var ta=window.parent.document.querySelector('textarea[aria-label=\"翻译模板草稿\"]');"
-        "if(b&&!b.dataset.bound){b.dataset.bound='1';"
-        "b.addEventListener('click',function(){"
-        "var txt=ta?ta.value:_fb;"
-        "if(txt===undefined||txt===null)txt=_fb;"
-        "navigator.clipboard.writeText(txt);"
-        "b.textContent='✅';setTimeout(function(){b.textContent='📋';},1500);"
-        "});}"
-        "}"
-        "function _initAR(){"
-        "['翻译前定制项','翻译后定制项','翻译模板草稿'].forEach(function(l){"
-        "var ta=window.parent.document.querySelector('textarea[aria-label=\"'+l+'\"]');"
-        "if(ta&&!ta.dataset.ar){ta.dataset.ar='1';ta.addEventListener('input',function(){_ar(ta);});_ar(ta);}"
-        "});"
-        "_bindCopy();"
-        "}"
-        "_initAR();"
-        "var _obs=new MutationObserver(_initAR);"
-        "_obs.observe(window.parent.document.body,{childList:true,subtree:true});"
-        "</script>"
-    )
-    components.html(_auto_resize_html, height=0)
-
 
 # ════════════════════════════════════════════════════════════════════════════
 # 独立功能：Callie定制项生成（上传订单 + 翻译模板 → 生成 AY 列）
@@ -1165,498 +1091,334 @@ with st.expander("规则草稿生成"):
 # ════════════════════════════════════════════════════════════════════════════
 st.divider()
 
-# B 系统 header + 右上角指示标（规则说明 / 已入库属性表）
-_b_left, _b_mid, _b_right = st.columns([5, 1, 1])
-with _b_left:
-    st.markdown("""
-    <div class="main-header" style="background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);">
-        <h1>🎨 callie定制项填充</h1>
-    </div>
-    """, unsafe_allow_html=True)
-with _b_mid:
-    st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
-    if st.button("📚 已入库属性表", key="btn_registered_skus", use_container_width=True):
-        _show_registered_skus()
-with _b_right:
-    st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
-    if st.button("📖 规则说明", key="btn_rules_b", use_container_width=True):
-        _show_rules_b()
+# ── B 系统整块默认折叠：点击标题才展开（内部不能嵌套 expander，已改为普通卡片）──
+with st.expander("🎨 B 系统：callie 定制项生成（点击展开）", expanded=False):
+    # B 系统 header + 右上角指示标（规则说明 / 已入库属性表）
+    _b_left, _b_mid, _b_right = st.columns([5, 1, 1])
+    with _b_left:
+        st.markdown("""
+        <div class="main-header" style="background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);">
+            <h1>🎨 callie定制项填充</h1>
+        </div>
+        """, unsafe_allow_html=True)
+    with _b_mid:
+        st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
+        if st.button("📚 已入库属性表", key="btn_registered_skus", use_container_width=True):
+            _show_registered_skus()
+    with _b_right:
+        st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
+        if st.button("📖 规则说明", key="btn_rules_b", use_container_width=True):
+            _show_rules_b()
 
-def _derive_sku_from_filename(name):
-    """从上传文件名推断 SKU（去掉扩展名）。用户把 attribute.xlsx 直接命名为 SKU 即可免手填。"""
-    return os.path.splitext(os.path.basename(str(name)))[0].strip()
+    def _derive_sku_from_filename(name):
+        """从上传文件名推断 SKU（去掉扩展名）。用户把 attribute.xlsx 直接命名为 SKU 即可免手填。"""
+        return os.path.splitext(os.path.basename(str(name)))[0].strip()
 
-with st.expander("属性表入库"):
-    attr_file = st.file_uploader("attribute.xlsx（文件名 = SKU 编号）", type=["xlsx"], key="new_attr")
-    if st.button("📥 入库属性表", key="btn_register"):
-        if not attr_file:
-            st.warning("请上传 attribute.xlsx")
-        elif _is_shortcut(attr_file):
-            st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请选真实 .xlsx 上传。")
-        else:
-            sku = _derive_sku_from_filename(attr_file.name)
-            if not sku:
-                st.warning("无法从文件名推断 SKU，请把文件命名为 SKU 编号后重新上传")
+    with st.container(border=True):
+        st.markdown("#### 📥 属性表入库")
+        attr_file = st.file_uploader("attribute.xlsx（文件名 = SKU 编号）", type=["xlsx"], key="new_attr")
+        if st.button("📥 入库属性表", key="btn_register"):
+            if not attr_file:
+                st.warning("请上传 attribute.xlsx")
+            elif _is_shortcut(attr_file):
+                st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请选真实 .xlsx 上传。")
             else:
-                tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
-                tmp.write(attr_file.getbuffer()); tmp.close()
-                try:
-                    import build_callie_sku
-                    attr = build_callie_sku.main(sku, tmp.name)
-                    n_grp = len(attr.get("groups", [])) if attr else 0
-                    n_opt = sum(1 for g in attr.get("groups", []) if g.get("opts")) if attr else 0
-                    if n_opt == 0:
-                        st.warning(f"✅ 已入库 {sku}（{n_grp} 组），但**没有任何选项列表(opts)**——发色路由等值映射可能报「固定ID模式」。请确认上传的是 callie 后台导出的完整属性表。")
-                    else:
-                        st.success(f"✅ 已入库 {sku}（{n_grp} 组 / 含选项 {n_opt} 组），B 系统导出时自动复用")
-                except Exception as e:
-                    st.error(f"入库失败：{e}")
-                finally:
-                    _cleanup(tmp.name)
+                sku = _derive_sku_from_filename(attr_file.name)
+                if not sku:
+                    st.warning("无法从文件名推断 SKU，请把文件命名为 SKU 编号后重新上传")
+                else:
+                    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+                    tmp.write(attr_file.getbuffer()); tmp.close()
+                    try:
+                        import build_callie_sku
+                        attr = build_callie_sku.main(sku, tmp.name)
+                        n_grp = len(attr.get("groups", [])) if attr else 0
+                        n_opt = sum(1 for g in attr.get("groups", []) if g.get("opts")) if attr else 0
+                        if n_opt == 0:
+                            st.warning(f"✅ 已入库 {sku}（{n_grp} 组），但**没有任何选项列表(opts)**——发色路由等值映射可能报「固定ID模式」。请确认上传的是 callie 后台导出的完整属性表。")
+                        else:
+                            st.success(f"✅ 已入库 {sku}（{n_grp} 组 / 含选项 {n_opt} 组），B 系统导出时自动复用")
+                    except Exception as e:
+                        st.error(f"入库失败：{e}")
+                    finally:
+                        _cleanup(tmp.name)
 
-# ── 规则草稿生成（独立上传模板，不依赖步骤一）──
-with st.expander("规则草稿生成"):
-    import build_callie_rule as bcr
-    import json as _json
+    # ── 规则草稿生成（独立上传模板，不依赖步骤一）──
+    with st.container(border=True):
+        st.markdown("#### 🧩 规则草稿生成")
+        import build_callie_rule as bcr
+        import json as _json
 
-    # 独立上传翻译模板：本面板自取，不依赖步骤一
-    _draft_upl = st.file_uploader(
-        "拖拽或点击上传翻译模板 Excel（支持 .xlsx / .xls）",
-        type=["xlsx", "xls"], key="draft_template", label_visibility="collapsed",
-    )
-    if _draft_upl is not None:
-        if _is_shortcut(_draft_upl):
-            st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请选真实 .xlsx/.xls 上传。")
-        else:
-            _cleanup(st.session_state.get("draft_template_path"))
-            _dn = _draft_upl.name
-            _tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
-            _tmp.write(_draft_upl.getbuffer())
-            _tmp.close()
-            _rp = _tmp.name
-            st.session_state.draft_template_path = _rp
-            st.session_state.draft_template_name = _dn
-            st.session_state.draft_template_saved = True
-            # 同步给步骤三导出用，省得再传一次
-            st.session_state.callie_template_path = _rp
-            st.session_state.callie_template_name = _dn
-            st.session_state.callie_template_saved = True
-
-    if not st.session_state.get("draft_template_saved"):
-        if st.session_state.get("callie_template_saved") and st.session_state.get("callie_template_path"):
-            st.session_state.draft_template_path = st.session_state.callie_template_path
-            st.session_state.draft_template_saved = True
-            st.info("已复用步骤一上传的翻译模板；如需换模板，可在此重新上传。")
-        else:
-            st.info("👆 请上传翻译模板，系统才能读取各 SKU 的 E（J 示例）/ F（AZ 示例）列")
-    else:
-        _tpl_path = st.session_state.draft_template_path
-        try:
-            _tmpl = bcr.read_template(_tpl_path)
-        except Exception as _e:
-            st.error(f"读取模板失败：{_e}")
-            _tmpl = {}
-        if not _tmpl:
-            st.warning("模板里没有任何 SKU 的 D/E/F 内容")
-        else:
-            _sku = st.selectbox("选择 SKU", list(_tmpl.keys()), key="gen_sku")
-            _cols = _tmpl[_sku]
-            st.caption("当前 标准化规则（阶段 0）：")
-            st.code(_cols.get("STD") or "(空)", language="text")
-            st.caption("当前 callie定制项翻译规则：")
-            st.code(_cols["D"] or "(空)", language="text")
-
-            def _load_attr_for(sku):
-                _lib = os.path.join(CALLIE_SKU_DIR, sku, "attribute_config.json")
-                if os.path.isfile(_lib):
-                    with open(_lib, encoding="utf-8") as _fh:
-                        return _json.load(_fh)
-                return None
-
-            def _auto_h(text, min_h=120, line_px=21, pad=20):
-                # 按内容行数动态撑开高度，避免固定高度截断内容
-                return max(min_h, len(str(text).splitlines()) * line_px + pad)
-
-            _e = st.text_area("临时列(需删除) 示例（J）", value=_cols["E"], key="gen_e", height=_auto_h(_cols["E"]))
-            _f = st.text_area("callie定制项 示例（AZ）", value=_cols["F"], key="gen_f", height=_auto_h(_cols["F"], min_h=160))
-
-            if st.button("🤖 生成草稿", key="gen_btn", use_container_width=True):
-                try:
-                    _attr = _load_attr_for(_sku)
-                    _draft = bcr.generate_rule_draft(_e, _f, _attr)
-                    st.session_state.gen_draft_ta = _draft
-                    st.rerun()
-                except Exception as _e:
-                    st.error(f"生成失败：{_e}")
-
-            _draft_val = st.text_area(
-                "callie定制项翻译规则草稿（可编辑，改完点「应用到该 SKU」）",
-                value=st.session_state.get("gen_draft_ta", ""),
-                key="gen_draft_ta", height=_auto_h(st.session_state.get("gen_draft_ta", ""), min_h=200),
-            )
-            _std_val = st.text_area(
-                "标准化规则（阶段 0，可编辑，每条 rule|原始行|目标行…；应用到该 SKU 时一并写回）",
-                value=_cols.get("STD", ""),
-                key="gen_std_ta", height=_auto_h(_cols.get("STD", ""), min_h=120),
-            )
-
-            _c1, _c2 = st.columns(2)
-            with _c1:
-                if st.button("▶ 对示例跑一遍（期望 AZ vs 生成 AZ）", key="gen_test", use_container_width=True):
-                    if not _draft_val.strip():
-                        st.warning("草稿为空，请先点「🤖 生成草稿」")
-                    else:
-                        try:
-                            _attr = _load_attr_for(_sku)
-                            if _attr is None:
-                                st.warning("⚠️ 该 SKU 未入库属性表，无法编译校验；草稿仍可直接应用")
-                            _rule = bcr.compile_rule(_sku, _draft_val, _e, _f, _attr)
-                            _ok, _diffs = bcr.validate_rule(_rule, _e, _f, _attr)
-                            if _ok:
-                                st.success("✅ 草稿生成的 AZ 与示例 F 完全一致")
-                            else:
-                                st.warning("⚠️ 草稿生成的 AZ 与示例 F 有差异（修改罗盘）：")
-                                for _d in _diffs:
-                                    st.code(_d)
-                        except Exception as _e:
-                            st.error(f"编译/校验失败：{_e}")
-            with _c2:
-                if st.button("💾 应用到该 SKU", key="gen_apply", use_container_width=True):
-                    if not _draft_val.strip() and not _std_val.strip():
-                        st.warning("草稿与标准化规则均为空")
-                    else:
-                        try:
-                            import openpyxl
-                            _wb = openpyxl.load_workbook(_tpl_path)
-                            _ws = _wb.active
-                            # 按表头名定位 SKU / 映射规则 / 标准化规则 列，避免写错列
-                            _dcols = bcr._detect_columns(_tpl_path)
-                            _sku_c, _map_c, _std_c = _dcols["sku"], _dcols["mapping"], _dcols["std"]
-                            for _row in _ws.iter_rows():
-                                if _sku_c < len(_row) and str(_row[_sku_c].value or "").strip() == _sku:
-                                    if _draft_val.strip() and _map_c is not None and _map_c < len(_row):
-                                        _row[_map_c].value = _draft_val
-                                    if _std_val.strip() and _std_c is not None and _std_c < len(_row):
-                                        _row[_std_c].value = _std_val
-                                    break
-                            _wb.save(_tpl_path)
-                            st.session_state.callie_result_path = None
-                            st.success(f"✅ 已写入 {_sku} 的 callie定制项翻译规则列" +
-                                       (" 与 标准化规则列" if _std_val.strip() else "") +
-                                       "，下次点「🚀 导出表格」即用此规则")
-                            st.rerun()
-                        except Exception as _e:
-                            st.error(f"写回失败（模板需为 .xlsx 格式）：{_e}")
-
-def _save_upload(uploaded):
-    """把上传的文件存成临时文件，返回路径（openpyxl/pandas 需要真实路径）。"""
-    suffix = os.path.splitext(uploaded.name)[1] or ".xlsx"
-    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-    tmp.write(uploaded.getbuffer())
-    tmp.close()
-    return tmp.name
-
-
-def _append_missing_columns(dst_path, result_df, missing_cols):
-    """原订单缺失的同步列（AW/AX/AY 等）追加到末尾，保证导出文件包含并填值。
-
-    仅在轻量更新之后调用；对「列缺失」的老订单兜底，避免数据静默丢失。
-    用 openpyxl 追加（保留已轻量写入的样式/图片），效率低于 XML 直改但仅针对少量缺列。
-    """
-    import openpyxl
-    wb = openpyxl.load_workbook(dst_path)
-    ws = wb.active
-    start_col = ws.max_column + 1
-    n_rows = len(result_df)
-    for offset, col in enumerate(missing_cols):
-        c_idx = start_col + offset
-        # 表头
-        ws.cell(row=1, column=c_idx, value=col)
-        # 数据行（result_df 与订单行一一对应）
-        for i in range(n_rows):
-            v = result_df.iloc[i][col]
-            ws.cell(row=i + 2, column=c_idx, value="" if pd.isna(v) else str(v))
-    wb.save(dst_path)
-
-
-def _export_callie_preserve_format(src_path, dst_path, orig_df, result_df,
-                                   sync_cols=("callie定制项", "参考callie站点", "calie商品ID", "callie商品版本")):
-    """保留原订单格式（图片/列宽/样式/合并单元格）导出，只写有变化的列单元格。
-
-    复用 translator 的 zipfile 直改 XML 方式（_update_xlsx_cells_lightweight），
-    不经过 pandas 写回，避免 to_excel 丢失图片与格式。
-
-    同步列（默认，列位置以原始订单 pet8.17.xls 为准）：
-      callie定制项(AZ)            —— callie定制项翻译规则列生成
-      参考callie站点(AW)          —— 恒为 callie
-      calie商品ID(AX)            —— 翻译模板「calie商品ID和商品版本」列
-      callie商品版本(AY)          —— 翻译模板「calie商品ID和商品版本」列
-
-    鲁棒性：
-      * 原订单已含这些列 → 轻量更新已有单元格（保留图片/格式）；
-      * 原订单缺某列（老订单/不同模板导出）→ 该列追加到末尾（列名 + 每行值），保证数据不丢；
-      * 全部列都不存在 → 退回 pandas 写（会丢失图片/格式）。
-    """
-    present = [c for c in sync_cols if c in orig_df.columns and c in result_df.columns]
-    missing = [c for c in sync_cols if c in result_df.columns and c not in orig_df.columns]
-
-    if not present and not missing:
-        # 兜底：老订单无这些列 → 退回 pandas 写
-        result_df.to_excel(dst_path, index=False)
-        return
-
-    updates = {}
-    for col in present:
-        ci = list(orig_df.columns).index(col)
-        letter = _col_idx_to_letter(ci + 1)
-        for i in range(len(orig_df)):
-            old_v = orig_df.iloc[i][col]
-            new_v = result_df.iloc[i][col]
-            old_s = "" if pd.isna(old_v) else str(old_v)
-            new_s = "" if pd.isna(new_v) else str(new_v)
-            if old_s != new_s:
-                # 0-based 数据行 → 1-based Excel 行（+1 表头 +1 索引）
-                updates.setdefault(i + 2, {})[letter] = new_s
-
-    if not updates and not missing:
-        shutil.copy2(src_path, dst_path)
-        return
-
-    # 对 .xls 等旧二进制格式无法直改 XML，先转成临时 xlsx 再轻量写入
-    #（.xls 本身不支持图片/现代格式，转 xlsx 仅损失原 .xls 的格式，数据保留）
-    import zipfile
-    src_is_xlsx = False
-    try:
-        with zipfile.ZipFile(src_path, "r"):
-            src_is_xlsx = True
-    except Exception:
-        src_is_xlsx = False
-
-    if src_is_xlsx:
-        _update_xlsx_cells_lightweight(src_path, dst_path, updates)
-    else:
-        tmp_xlsx = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
-        try:
-            orig_df.to_excel(tmp_xlsx, index=False, engine="openpyxl")
-            _update_xlsx_cells_lightweight(tmp_xlsx, dst_path, updates)
-        finally:
-            _cleanup(tmp_xlsx)
-
-    # 原订单缺失的列（AW/AX/AY 等）→ 追加到末尾，确保导出文件里出现并填值
-    if missing:
-        _append_missing_columns(dst_path, result_df, missing)
-
-# ── B 系统四列卡片布局（与 A 系统一致）────────────────────────────
-bcol1, bcol2, bcol3, bcol4 = st.columns(4, gap="small")
-
-# 列1：上传翻译模板（顺序与 A 系统一致：先模板，再订单）
-with bcol1, _step_card("步骤1：上传翻译模板"):
-    template_file = st.file_uploader(
-        "拖拽或点击上传翻译模板 Excel（支持 .xlsx / .xls）",
-        type=["xlsx", "xls"], key="callie_template", label_visibility="collapsed",
-    )
-    if template_file is not None:
-        if _is_shortcut(template_file):
-            st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请右键快捷方式→「打开文件所在位置」，选真实的 .xlsx/.xls 上传。")
-            st.session_state.callie_template_saved = False
-        else:
-            _cleanup(st.session_state.get("callie_template_path"))
-            tpl_name = template_file.name
-            tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
-            tmp.write(template_file.getbuffer())
-            tmp.close()
-            real_path = tmp.name
-            try:
-                st.session_state.callie_template_path = real_path
-                st.session_state.callie_template_name = tpl_name
+        # 独立上传翻译模板：本面板自取，不依赖步骤一
+        _draft_upl = st.file_uploader(
+            "拖拽或点击上传翻译模板 Excel（支持 .xlsx / .xls）",
+            type=["xlsx", "xls"], key="draft_template", label_visibility="collapsed",
+        )
+        if _draft_upl is not None:
+            if _is_shortcut(_draft_upl):
+                st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请选真实 .xlsx/.xls 上传。")
+            else:
+                _cleanup(st.session_state.get("draft_template_path"))
+                _dn = _draft_upl.name
+                _tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+                _tmp.write(_draft_upl.getbuffer())
+                _tmp.close()
+                _rp = _tmp.name
+                st.session_state.draft_template_path = _rp
+                st.session_state.draft_template_name = _dn
+                st.session_state.draft_template_saved = True
+                # 同步给步骤三导出用，省得再传一次
+                st.session_state.callie_template_path = _rp
+                st.session_state.callie_template_name = _dn
                 st.session_state.callie_template_saved = True
-                st.session_state.callie_result_path = None
-            except Exception as e:
-                st.error(f"❌ {e}")
-                st.session_state.callie_template_saved = False
-                _cleanup(real_path)
 
-    if st.session_state.get("callie_template_saved"):
-        st.markdown(
-            f'<span class="saved-badge">✅ {st.session_state.callie_template_name}</span>',
-            unsafe_allow_html=True,
-        )
-        if st.button("🗑️ 清除", key="clear_callie_template", use_container_width=True):
-            _cleanup(st.session_state.get("callie_template_path"))
-            _cleanup(st.session_state.get("callie_result_path"))
-            for k in ["callie_template_path", "callie_template_name", "callie_template_saved",
-                      "callie_result_path", "callie_errors", "callie_cfg_summary"]:
-                if k.endswith("_path"):
-                    st.session_state[k] = None
-                elif k in ("callie_errors", "callie_cfg_summary"):
-                    st.session_state[k] = []
-                elif k.endswith("_saved"):
-                    st.session_state[k] = False
-                else:
-                    st.session_state[k] = ""
-            st.rerun()
-
-# 列2：上传订单
-with bcol2, _step_card("步骤2：上传订单"):
-    order_file = st.file_uploader(
-        "拖拽或点击上传订单 Excel（含 SKU 列和「临时列(需删除)」列）",
-        type=["xlsx", "xls"], key="callie_order", label_visibility="collapsed",
-    )
-    if order_file is not None:
-        if _is_shortcut(order_file):
-            st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请右键快捷方式→「打开文件所在位置」，选真实的 .xlsx/.xls 上传。")
-            st.session_state.callie_order_saved = False
+        if not st.session_state.get("draft_template_saved"):
+            if st.session_state.get("callie_template_saved") and st.session_state.get("callie_template_path"):
+                st.session_state.draft_template_path = st.session_state.callie_template_path
+                st.session_state.draft_template_saved = True
+                st.info("已复用步骤一上传的翻译模板；如需换模板，可在此重新上传。")
+            else:
+                st.info("👆 请上传翻译模板，系统才能读取各 SKU 的 E（J 示例）/ F（AZ 示例）列")
         else:
-            _cleanup(st.session_state.get("callie_order_path"))
-            _cleanup(st.session_state.get("callie_result_path"))
-            tmp = tempfile.NamedTemporaryFile(suffix=os.path.splitext(order_file.name)[1] or ".xlsx", delete=False)
-            tmp.write(order_file.getbuffer()); tmp.close()
+            _tpl_path = st.session_state.draft_template_path
             try:
-                st.session_state.callie_order_df = pd.read_excel(tmp.name, dtype=str)
-                st.session_state.callie_order_path = tmp.name
-                st.session_state.callie_order_name = order_file.name
-                st.session_state.callie_order_saved = True
-                st.session_state.callie_result_path = None
-            except Exception as e:
-                st.error(f"❌ {e}")
-                st.session_state.callie_order_saved = False
-                _cleanup(tmp.name)
+                _tmpl = bcr.read_template(_tpl_path)
+            except Exception as _e:
+                st.error(f"读取模板失败：{_e}")
+                _tmpl = {}
+            if not _tmpl:
+                st.warning("模板里没有任何 SKU 的 D/E/F 内容")
+            else:
+                _sku = st.selectbox("选择 SKU", list(_tmpl.keys()), key="gen_sku")
+                _cols = _tmpl[_sku]
+                st.caption("当前 标准化规则（阶段 0）：")
+                st.code(_cols.get("STD") or "(空)", language="text")
+                st.caption("当前 callie定制项翻译规则：")
+                st.code(_cols["D"] or "(空)", language="text")
 
-    if st.session_state.get("callie_order_saved"):
-        st.markdown(
-            f'<span class="saved-badge">✅ {st.session_state.callie_order_name}'
-            f'（{len(st.session_state.callie_order_df)} 行）</span>',
-            unsafe_allow_html=True,
-        )
-        if st.button("🗑️ 清除", key="clear_callie_order", use_container_width=True):
-            _cleanup(st.session_state.get("callie_order_path"))
-            _cleanup(st.session_state.get("callie_result_path"))
-            for k in ["callie_order_df", "callie_order_path", "callie_order_name",
-                      "callie_order_saved", "callie_result_path", "callie_errors",
-                      "callie_cfg_summary"]:
-                if k.endswith("_df") or k.endswith("_path"):
-                    st.session_state[k] = None
-                elif k in ("callie_errors", "callie_cfg_summary"):
-                    st.session_state[k] = []
-                elif k.endswith("_saved"):
-                    st.session_state[k] = False
-                else:
-                    st.session_state[k] = ""
-            st.rerun()
+                def _load_attr_for(sku):
+                    _lib = os.path.join(CALLIE_SKU_DIR, sku, "attribute_config.json")
+                    if os.path.isfile(_lib):
+                        with open(_lib, encoding="utf-8") as _fh:
+                            return _json.load(_fh)
+                    return None
 
-# 列3：导出表格
-with bcol3, _step_card("步骤3：导出表格"):
-    callie_both_ready = (
-        st.session_state.get("callie_order_saved")
-        and st.session_state.get("callie_template_saved")
-        and st.session_state.get("callie_order_path")
-        and st.session_state.get("callie_template_path")
-    )
+                def _auto_h(text, min_h=120, line_px=21, pad=20):
+                    # 按内容行数动态撑开高度，避免固定高度截断内容
+                    return max(min_h, len(str(text).splitlines()) * line_px + pad)
 
-    if not callie_both_ready:
-        st.info("👆 请先完成步骤1和2")
-    else:
-        if st.button("🚀 导出表格", type="primary", use_container_width=True, key="callie_export"):
-            import build_callie_rule as bcr
-            tmpl_path = order_path = None
-            reused_from_lib = []
-            try:
-                with st.spinner("正在编译规则并生成 AZ 列..."):
-                    tmpl_path = st.session_state.callie_template_path
-                    order_path = st.session_state.callie_order_path
+                _e = st.text_area("临时列(需删除) 示例（J）", value=_cols["E"], key="gen_e", height=_auto_h(_cols["E"]))
+                _f = st.text_area("callie定制项 示例（AZ）", value=_cols["F"], key="gen_f", height=_auto_h(_cols["F"], min_h=160))
 
-                    # 读翻译模板，确定需要哪些 SKU
-                    template = bcr.read_template(tmpl_path)
+                if st.button("🤖 生成草稿", key="gen_btn", use_container_width=True):
+                    try:
+                        _attr = _load_attr_for(_sku)
+                        _draft = bcr.generate_rule_draft(_e, _f, _attr)
+                        st.session_state.gen_draft_ta = _draft
+                        st.rerun()
+                    except Exception as _e:
+                        st.error(f"生成失败：{_e}")
 
-                    # 翻译模板「calie商品ID和商品版本」列映射：{sku: {id, version}}（供填充 AW/AX/AY）
-                    # 同时并入已入库属性表的 定制图id（callie 商品id 权威来源）
-                    callie_product_map = bcr.build_callie_product_map(tmpl_path, sku_dir=CALLIE_SKU_DIR)
-
-                    # 属性表来源：复用已入库的（callie_sku_configs/<SKU>/attribute_config.json）
-                    attr_sources = {}
-                    for sku in template:
-                        lib = os.path.join(CALLIE_SKU_DIR, sku, "attribute_config.json")
-                        if os.path.isfile(lib):
-                            attr_sources[sku] = lib
-                            reused_from_lib.append(sku)
-                        # 否则不放 → compile_from_template 标记「缺少属性表」
-
-                    # 编译各 SKU 规则
-                    cfgs = bcr.compile_from_template(tmpl_path, attr_sources)
-
-                    # 读订单
-                    order_df = pd.read_excel(order_path, dtype=str)
-
-                    # 逐行生成 AZ(callie定制项) + 填充 AW/AX(callie 商品信息)
-                    result_df, errors = bcr.process_orders(order_df, cfgs,
-                                                          callie_product_map=callie_product_map)
-
-                    # 导出临时 xlsx（保留原订单格式：图片/列宽/样式/合并单元格）
-                    out_path = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
-                    _export_callie_preserve_format(order_path, out_path, order_df, result_df)
-
-                st.session_state.callie_result_path = out_path
-                st.session_state.callie_errors = errors
-                st.session_state.callie_cfg_summary = {s: (c.get("error") or "✅") for s, c in cfgs.items()}
-                if reused_from_lib:
-                    st.session_state.callie_reused_skus = reused_from_lib
-                else:
-                    st.session_state.callie_reused_skus = []
-                st.session_state.callie_product_map_len = len(callie_product_map)
-            except Exception as e:
-                st.error(f"❌ 处理失败：{e}")
-            finally:
-                # 注意：不要清理 session_state 中的模板/订单路径，它们后续还要用
-                pass
-
-        # 结果展示：统计 + 下载
-        if st.session_state.get("callie_result_path"):
-            errors = st.session_state.get("callie_errors") or []
-            shown_errors = [e for e in errors if e.get("状态") != "未配置"]
-            fail = [e for e in shown_errors if e["状态"] in ("生成失败", "异常", "配置错误")]
-            summary = st.session_state.get("callie_cfg_summary") or {}
-
-            # 规则编译失败必须显眼报出：否则 AZ 整列空却看不到原因（2026-08-21 踩坑）
-            bad_cfg = {s: v for s, v in summary.items() if v != "✅"}
-            if bad_cfg:
-                st.error(
-                    "⚠️ 以下 SKU 规则编译失败，**AZ（callie定制项）不会生成**：\n\n"
-                    + "\n".join(f"- `{s}`：{v}" for s, v in bad_cfg.items())
+                _draft_val = st.text_area(
+                    "callie定制项翻译规则草稿（可编辑，改完点「应用到该 SKU」）",
+                    value=st.session_state.get("gen_draft_ta", ""),
+                    key="gen_draft_ta", height=_auto_h(st.session_state.get("gen_draft_ta", ""), min_h=200),
+                )
+                _std_val = st.text_area(
+                    "标准化规则（阶段 0，可编辑，每条 rule|原始行|目标行…；应用到该 SKU 时一并写回）",
+                    value=_cols.get("STD", ""),
+                    key="gen_std_ta", height=_auto_h(_cols.get("STD", ""), min_h=120),
                 )
 
-            # 统计：成功 SKU 数 / 失败行数
-            ok_skus = sum(1 for v in summary.values() if v == "✅")
-            total_skus = len(summary)
-            sm1, sm2 = st.columns(2)
-            with sm1:
-                st.markdown(f'<div class="stat-box"><div class="number">{ok_skus}/{total_skus}</div><div class="label">✅ SKU 规则编译</div></div>', unsafe_allow_html=True)
-            with sm2:
-                c = "#dc2626" if fail else "#4f46e5"
-                st.markdown(f'<div class="stat-box"><div class="number" style="color:{c}">{len(fail)}</div><div class="label">❌ 错误行</div></div>', unsafe_allow_html=True)
+                _c1, _c2 = st.columns(2)
+                with _c1:
+                    if st.button("▶ 对示例跑一遍（期望 AZ vs 生成 AZ）", key="gen_test", use_container_width=True):
+                        if not _draft_val.strip():
+                            st.warning("草稿为空，请先点「🤖 生成草稿」")
+                        else:
+                            try:
+                                _attr = _load_attr_for(_sku)
+                                if _attr is None:
+                                    st.warning("⚠️ 该 SKU 未入库属性表，无法编译校验；草稿仍可直接应用")
+                                _rule = bcr.compile_rule(_sku, _draft_val, _e, _f, _attr)
+                                _ok, _diffs = bcr.validate_rule(_rule, _e, _f, _attr)
+                                if _ok:
+                                    st.success("✅ 草稿生成的 AZ 与示例 F 完全一致")
+                                else:
+                                    st.warning("⚠️ 草稿生成的 AZ 与示例 F 有差异（修改罗盘）：")
+                                    for _d in _diffs:
+                                        st.code(_d)
+                            except Exception as _e:
+                                st.error(f"编译/校验失败：{_e}")
+                with _c2:
+                    if st.button("💾 应用到该 SKU", key="gen_apply", use_container_width=True):
+                        if not _draft_val.strip() and not _std_val.strip():
+                            st.warning("草稿与标准化规则均为空")
+                        else:
+                            try:
+                                import openpyxl
+                                _wb = openpyxl.load_workbook(_tpl_path)
+                                _ws = _wb.active
+                                # 按表头名定位 SKU / 映射规则 / 标准化规则 列，避免写错列
+                                _dcols = bcr._detect_columns(_tpl_path)
+                                _sku_c, _map_c, _std_c = _dcols["sku"], _dcols["mapping"], _dcols["std"]
+                                for _row in _ws.iter_rows():
+                                    if _sku_c < len(_row) and str(_row[_sku_c].value or "").strip() == _sku:
+                                        if _draft_val.strip() and _map_c is not None and _map_c < len(_row):
+                                            _row[_map_c].value = _draft_val
+                                        if _std_val.strip() and _std_c is not None and _std_c < len(_row):
+                                            _row[_std_c].value = _std_val
+                                        break
+                                _wb.save(_tpl_path)
+                                st.session_state.callie_result_path = None
+                                st.success(f"✅ 已写入 {_sku} 的 callie定制项翻译规则列" +
+                                           (" 与 标准化规则列" if _std_val.strip() else "") +
+                                           "，下次点「🚀 导出表格」即用此规则")
+                                st.rerun()
+                            except Exception as _e:
+                                st.error(f"写回失败（模板需为 .xlsx 格式）：{_e}")
 
-            if st.session_state.get("callie_reused_skus"):
-                st.caption("♻️ 已复用属性表：" + "、".join(st.session_state.callie_reused_skus))
-            if st.session_state.get("callie_product_map_len"):
-                st.caption(f"📎 已从翻译模板「calie商品ID和商品版本」列匹配 {st.session_state.callie_product_map_len} 个 SKU 的商品信息")
+    def _save_upload(uploaded):
+        """把上传的文件存成临时文件，返回路径（openpyxl/pandas 需要真实路径）。"""
+        suffix = os.path.splitext(uploaded.name)[1] or ".xlsx"
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        tmp.write(uploaded.getbuffer())
+        tmp.close()
+        return tmp.name
 
-            base_name = os.path.splitext(st.session_state.get("callie_order_name", "订单"))[0]
-            with open(st.session_state.callie_result_path, "rb") as f:
-                st.download_button("📥 下载订单副本（含 callie定制项列）", data=f.read(),
-                                   file_name=f"{base_name}+副本2.xlsx",
-                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                   use_container_width=True, key="callie_dl")
 
-            if st.button("🔄 重新开始", use_container_width=True, key="reset_callie"):
-                _cleanup(st.session_state.get("callie_order_path"))
+    def _append_missing_columns(dst_path, result_df, missing_cols):
+        """原订单缺失的同步列（AW/AX/AY 等）追加到末尾，保证导出文件包含并填值。
+
+        仅在轻量更新之后调用；对「列缺失」的老订单兜底，避免数据静默丢失。
+        用 openpyxl 追加（保留已轻量写入的样式/图片），效率低于 XML 直改但仅针对少量缺列。
+        """
+        import openpyxl
+        wb = openpyxl.load_workbook(dst_path)
+        ws = wb.active
+        start_col = ws.max_column + 1
+        n_rows = len(result_df)
+        for offset, col in enumerate(missing_cols):
+            c_idx = start_col + offset
+            # 表头
+            ws.cell(row=1, column=c_idx, value=col)
+            # 数据行（result_df 与订单行一一对应）
+            for i in range(n_rows):
+                v = result_df.iloc[i][col]
+                ws.cell(row=i + 2, column=c_idx, value="" if pd.isna(v) else str(v))
+        wb.save(dst_path)
+
+
+    def _export_callie_preserve_format(src_path, dst_path, orig_df, result_df,
+                                       sync_cols=("callie定制项", "参考callie站点", "calie商品ID", "callie商品版本")):
+        """保留原订单格式（图片/列宽/样式/合并单元格）导出，只写有变化的列单元格。
+
+        复用 translator 的 zipfile 直改 XML 方式（_update_xlsx_cells_lightweight），
+        不经过 pandas 写回，避免 to_excel 丢失图片与格式。
+
+        同步列（默认，列位置以原始订单 pet8.17.xls 为准）：
+          callie定制项(AZ)            —— callie定制项翻译规则列生成
+          参考callie站点(AW)          —— 恒为 callie
+          calie商品ID(AX)            —— 翻译模板「calie商品ID和商品版本」列
+          callie商品版本(AY)          —— 翻译模板「calie商品ID和商品版本」列
+
+        鲁棒性：
+          * 原订单已含这些列 → 轻量更新已有单元格（保留图片/格式）；
+          * 原订单缺某列（老订单/不同模板导出）→ 该列追加到末尾（列名 + 每行值），保证数据不丢；
+          * 全部列都不存在 → 退回 pandas 写（会丢失图片/格式）。
+        """
+        present = [c for c in sync_cols if c in orig_df.columns and c in result_df.columns]
+        missing = [c for c in sync_cols if c in result_df.columns and c not in orig_df.columns]
+
+        if not present and not missing:
+            # 兜底：老订单无这些列 → 退回 pandas 写
+            result_df.to_excel(dst_path, index=False)
+            return
+
+        updates = {}
+        for col in present:
+            ci = list(orig_df.columns).index(col)
+            letter = _col_idx_to_letter(ci + 1)
+            for i in range(len(orig_df)):
+                old_v = orig_df.iloc[i][col]
+                new_v = result_df.iloc[i][col]
+                old_s = "" if pd.isna(old_v) else str(old_v)
+                new_s = "" if pd.isna(new_v) else str(new_v)
+                if old_s != new_s:
+                    # 0-based 数据行 → 1-based Excel 行（+1 表头 +1 索引）
+                    updates.setdefault(i + 2, {})[letter] = new_s
+
+        if not updates and not missing:
+            shutil.copy2(src_path, dst_path)
+            return
+
+        # 对 .xls 等旧二进制格式无法直改 XML，先转成临时 xlsx 再轻量写入
+        #（.xls 本身不支持图片/现代格式，转 xlsx 仅损失原 .xls 的格式，数据保留）
+        import zipfile
+        src_is_xlsx = False
+        try:
+            with zipfile.ZipFile(src_path, "r"):
+                src_is_xlsx = True
+        except Exception:
+            src_is_xlsx = False
+
+        if src_is_xlsx:
+            _update_xlsx_cells_lightweight(src_path, dst_path, updates)
+        else:
+            tmp_xlsx = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
+            try:
+                orig_df.to_excel(tmp_xlsx, index=False, engine="openpyxl")
+                _update_xlsx_cells_lightweight(tmp_xlsx, dst_path, updates)
+            finally:
+                _cleanup(tmp_xlsx)
+
+        # 原订单缺失的列（AW/AX/AY 等）→ 追加到末尾，确保导出文件里出现并填值
+        if missing:
+            _append_missing_columns(dst_path, result_df, missing)
+
+    # ── B 系统四列卡片布局（与 A 系统一致）────────────────────────────
+    bcol1, bcol2, bcol3, bcol4 = st.columns(4, gap="small")
+
+    # 列1：上传翻译模板（顺序与 A 系统一致：先模板，再订单）
+    with bcol1, _step_card("步骤1：上传翻译模板"):
+        template_file = st.file_uploader(
+            "拖拽或点击上传翻译模板 Excel（支持 .xlsx / .xls）",
+            type=["xlsx", "xls"], key="callie_template", label_visibility="collapsed",
+        )
+        if template_file is not None:
+            if _is_shortcut(template_file):
+                st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请右键快捷方式→「打开文件所在位置」，选真实的 .xlsx/.xls 上传。")
+                st.session_state.callie_template_saved = False
+            else:
+                _cleanup(st.session_state.get("callie_template_path"))
+                tpl_name = template_file.name
+                tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+                tmp.write(template_file.getbuffer())
+                tmp.close()
+                real_path = tmp.name
+                try:
+                    st.session_state.callie_template_path = real_path
+                    st.session_state.callie_template_name = tpl_name
+                    st.session_state.callie_template_saved = True
+                    st.session_state.callie_result_path = None
+                except Exception as e:
+                    st.error(f"❌ {e}")
+                    st.session_state.callie_template_saved = False
+                    _cleanup(real_path)
+
+        if st.session_state.get("callie_template_saved"):
+            st.markdown(
+                f'<span class="saved-badge">✅ {st.session_state.callie_template_name}</span>',
+                unsafe_allow_html=True,
+            )
+            if st.button("🗑️ 清除", key="clear_callie_template", use_container_width=True):
                 _cleanup(st.session_state.get("callie_template_path"))
                 _cleanup(st.session_state.get("callie_result_path"))
-                for k in ["callie_order_df", "callie_order_path", "callie_order_name", "callie_order_saved",
-                          "callie_template_path", "callie_template_name", "callie_template_saved",
-                          "callie_result_path", "callie_errors", "callie_cfg_summary",
-                          "callie_reused_skus", "callie_product_map_len"]:
-                    if k.endswith("_df") or k.endswith("_path"):
+                for k in ["callie_template_path", "callie_template_name", "callie_template_saved",
+                          "callie_result_path", "callie_errors", "callie_cfg_summary"]:
+                    if k.endswith("_path"):
                         st.session_state[k] = None
-                    elif k in ("callie_errors", "callie_cfg_summary", "callie_reused_skus"):
+                    elif k in ("callie_errors", "callie_cfg_summary"):
                         st.session_state[k] = []
                     elif k.endswith("_saved"):
                         st.session_state[k] = False
@@ -1664,25 +1426,194 @@ with bcol3, _step_card("步骤3：导出表格"):
                         st.session_state[k] = ""
                 st.rerun()
 
-# 列4：错误报告
-with bcol4, _step_card("步骤4：错误报告"):
+    # 列2：上传订单
+    with bcol2, _step_card("步骤2：上传订单"):
+        order_file = st.file_uploader(
+            "拖拽或点击上传订单 Excel（含 SKU 列和「临时列(需删除)」列）",
+            type=["xlsx", "xls"], key="callie_order", label_visibility="collapsed",
+        )
+        if order_file is not None:
+            if _is_shortcut(order_file):
+                st.error("❌ 上传的是 Windows 快捷方式（.lnk），不是真实 Excel。请右键快捷方式→「打开文件所在位置」，选真实的 .xlsx/.xls 上传。")
+                st.session_state.callie_order_saved = False
+            else:
+                _cleanup(st.session_state.get("callie_order_path"))
+                _cleanup(st.session_state.get("callie_result_path"))
+                tmp = tempfile.NamedTemporaryFile(suffix=os.path.splitext(order_file.name)[1] or ".xlsx", delete=False)
+                tmp.write(order_file.getbuffer()); tmp.close()
+                try:
+                    st.session_state.callie_order_df = pd.read_excel(tmp.name, dtype=str)
+                    st.session_state.callie_order_path = tmp.name
+                    st.session_state.callie_order_name = order_file.name
+                    st.session_state.callie_order_saved = True
+                    st.session_state.callie_result_path = None
+                except Exception as e:
+                    st.error(f"❌ {e}")
+                    st.session_state.callie_order_saved = False
+                    _cleanup(tmp.name)
 
-    if not st.session_state.get("callie_result_path"):
-        st.info("等待执行导出")
-    else:
-        errors = st.session_state.get("callie_errors") or []
-        shown_errors = [e for e in errors if e.get("状态") != "未配置"]
-        if not shown_errors:
-            st.success("🎉 无错误")
+        if st.session_state.get("callie_order_saved"):
+            st.markdown(
+                f'<span class="saved-badge">✅ {st.session_state.callie_order_name}'
+                f'（{len(st.session_state.callie_order_df)} 行）</span>',
+                unsafe_allow_html=True,
+            )
+            if st.button("🗑️ 清除", key="clear_callie_order", use_container_width=True):
+                _cleanup(st.session_state.get("callie_order_path"))
+                _cleanup(st.session_state.get("callie_result_path"))
+                for k in ["callie_order_df", "callie_order_path", "callie_order_name",
+                          "callie_order_saved", "callie_result_path", "callie_errors",
+                          "callie_cfg_summary"]:
+                    if k.endswith("_df") or k.endswith("_path"):
+                        st.session_state[k] = None
+                    elif k in ("callie_errors", "callie_cfg_summary"):
+                        st.session_state[k] = []
+                    elif k.endswith("_saved"):
+                        st.session_state[k] = False
+                    else:
+                        st.session_state[k] = ""
+                st.rerun()
+
+    # 列3：导出表格
+    with bcol3, _step_card("步骤3：导出表格"):
+        callie_both_ready = (
+            st.session_state.get("callie_order_saved")
+            and st.session_state.get("callie_template_saved")
+            and st.session_state.get("callie_order_path")
+            and st.session_state.get("callie_template_path")
+        )
+
+        if not callie_both_ready:
+            st.info("👆 请先完成步骤1和2")
         else:
-            fail = [e for e in shown_errors if e["状态"] in ("生成失败", "异常", "配置错误")]
-            st.warning(f"**{len(shown_errors)} 条提示**（严重 {len(fail)} 条）")
-            with st.expander("📋 展开详情", expanded=False):
-                st.dataframe(pd.DataFrame(shown_errors), use_container_width=True, hide_index=True,
-                             column_config={
-                                 "行号": st.column_config.NumberColumn("行号", width="small"),
-                                 "SKU": st.column_config.TextColumn("SKU", width="medium"),
-                                 "状态": st.column_config.TextColumn("状态", width="small"),
-                                 "说明": st.column_config.TextColumn("说明", width="large"),
-                             })
+            if st.button("🚀 导出表格", type="primary", use_container_width=True, key="callie_export"):
+                import build_callie_rule as bcr
+                tmpl_path = order_path = None
+                reused_from_lib = []
+                try:
+                    with st.spinner("正在编译规则并生成 AZ 列..."):
+                        tmpl_path = st.session_state.callie_template_path
+                        order_path = st.session_state.callie_order_path
+
+                        # 读翻译模板，确定需要哪些 SKU
+                        template = bcr.read_template(tmpl_path)
+
+                        # 翻译模板「calie商品ID和商品版本」列映射：{sku: {id, version}}（供填充 AW/AX/AY）
+                        # 同时并入已入库属性表的 定制图id（callie 商品id 权威来源）
+                        callie_product_map = bcr.build_callie_product_map(tmpl_path, sku_dir=CALLIE_SKU_DIR)
+
+                        # 属性表来源：复用已入库的（callie_sku_configs/<SKU>/attribute_config.json）
+                        attr_sources = {}
+                        for sku in template:
+                            lib = os.path.join(CALLIE_SKU_DIR, sku, "attribute_config.json")
+                            if os.path.isfile(lib):
+                                attr_sources[sku] = lib
+                                reused_from_lib.append(sku)
+                            # 否则不放 → compile_from_template 标记「缺少属性表」
+
+                        # 编译各 SKU 规则
+                        cfgs = bcr.compile_from_template(tmpl_path, attr_sources)
+
+                        # 读订单
+                        order_df = pd.read_excel(order_path, dtype=str)
+
+                        # 逐行生成 AZ(callie定制项) + 填充 AW/AX(callie 商品信息)
+                        result_df, errors = bcr.process_orders(order_df, cfgs,
+                                                              callie_product_map=callie_product_map)
+
+                        # 导出临时 xlsx（保留原订单格式：图片/列宽/样式/合并单元格）
+                        out_path = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
+                        _export_callie_preserve_format(order_path, out_path, order_df, result_df)
+
+                    st.session_state.callie_result_path = out_path
+                    st.session_state.callie_errors = errors
+                    st.session_state.callie_cfg_summary = {s: (c.get("error") or "✅") for s, c in cfgs.items()}
+                    if reused_from_lib:
+                        st.session_state.callie_reused_skus = reused_from_lib
+                    else:
+                        st.session_state.callie_reused_skus = []
+                    st.session_state.callie_product_map_len = len(callie_product_map)
+                except Exception as e:
+                    st.error(f"❌ 处理失败：{e}")
+                finally:
+                    # 注意：不要清理 session_state 中的模板/订单路径，它们后续还要用
+                    pass
+
+            # 结果展示：统计 + 下载
+            if st.session_state.get("callie_result_path"):
+                errors = st.session_state.get("callie_errors") or []
+                shown_errors = [e for e in errors if e.get("状态") != "未配置"]
+                fail = [e for e in shown_errors if e["状态"] in ("生成失败", "异常", "配置错误")]
+                summary = st.session_state.get("callie_cfg_summary") or {}
+
+                # 规则编译失败必须显眼报出：否则 AZ 整列空却看不到原因（2026-08-21 踩坑）
+                bad_cfg = {s: v for s, v in summary.items() if v != "✅"}
+                if bad_cfg:
+                    st.error(
+                        "⚠️ 以下 SKU 规则编译失败，**AZ（callie定制项）不会生成**：\n\n"
+                        + "\n".join(f"- `{s}`：{v}" for s, v in bad_cfg.items())
+                    )
+
+                # 统计：成功 SKU 数 / 失败行数
+                ok_skus = sum(1 for v in summary.values() if v == "✅")
+                total_skus = len(summary)
+                sm1, sm2 = st.columns(2)
+                with sm1:
+                    st.markdown(f'<div class="stat-box"><div class="number">{ok_skus}/{total_skus}</div><div class="label">✅ SKU 规则编译</div></div>', unsafe_allow_html=True)
+                with sm2:
+                    c = "#dc2626" if fail else "#4f46e5"
+                    st.markdown(f'<div class="stat-box"><div class="number" style="color:{c}">{len(fail)}</div><div class="label">❌ 错误行</div></div>', unsafe_allow_html=True)
+
+                if st.session_state.get("callie_reused_skus"):
+                    st.caption("♻️ 已复用属性表：" + "、".join(st.session_state.callie_reused_skus))
+                if st.session_state.get("callie_product_map_len"):
+                    st.caption(f"📎 已从翻译模板「calie商品ID和商品版本」列匹配 {st.session_state.callie_product_map_len} 个 SKU 的商品信息")
+
+                base_name = os.path.splitext(st.session_state.get("callie_order_name", "订单"))[0]
+                with open(st.session_state.callie_result_path, "rb") as f:
+                    st.download_button("📥 下载订单副本（含 callie定制项列）", data=f.read(),
+                                       file_name=f"{base_name}+副本2.xlsx",
+                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                       use_container_width=True, key="callie_dl")
+
+                if st.button("🔄 重新开始", use_container_width=True, key="reset_callie"):
+                    _cleanup(st.session_state.get("callie_order_path"))
+                    _cleanup(st.session_state.get("callie_template_path"))
+                    _cleanup(st.session_state.get("callie_result_path"))
+                    for k in ["callie_order_df", "callie_order_path", "callie_order_name", "callie_order_saved",
+                              "callie_template_path", "callie_template_name", "callie_template_saved",
+                              "callie_result_path", "callie_errors", "callie_cfg_summary",
+                              "callie_reused_skus", "callie_product_map_len"]:
+                        if k.endswith("_df") or k.endswith("_path"):
+                            st.session_state[k] = None
+                        elif k in ("callie_errors", "callie_cfg_summary", "callie_reused_skus"):
+                            st.session_state[k] = []
+                        elif k.endswith("_saved"):
+                            st.session_state[k] = False
+                        else:
+                            st.session_state[k] = ""
+                    st.rerun()
+
+    # 列4：错误报告
+    with bcol4, _step_card("步骤4：错误报告"):
+
+        if not st.session_state.get("callie_result_path"):
+            st.info("等待执行导出")
+        else:
+            errors = st.session_state.get("callie_errors") or []
+            shown_errors = [e for e in errors if e.get("状态") != "未配置"]
+            if not shown_errors:
+                st.success("🎉 无错误")
+            else:
+                fail = [e for e in shown_errors if e["状态"] in ("生成失败", "异常", "配置错误")]
+                st.warning(f"**{len(shown_errors)} 条提示**（严重 {len(fail)} 条）")
+                with st.container(border=True):
+                    st.markdown("**📋 错误详情**")
+                    st.dataframe(pd.DataFrame(shown_errors), use_container_width=True, hide_index=True,
+                                 column_config={
+                                     "行号": st.column_config.NumberColumn("行号", width="small"),
+                                     "SKU": st.column_config.TextColumn("SKU", width="medium"),
+                                     "状态": st.column_config.TextColumn("状态", width="small"),
+                                     "说明": st.column_config.TextColumn("说明", width="large"),
+                                 })
 
